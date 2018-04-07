@@ -36,7 +36,7 @@ def file2dict(file, delimiter='\t'):
 
 
 # benjamani-hochberg procedure for
-def argbenhoch(p, q=0.1, plot=False):
+def benhoch(p, q=0.1, plot=False):
     i = rankdata(p, method='ordinal')
     m = len(p)
     bh_crit = q * i / m
@@ -44,7 +44,7 @@ def argbenhoch(p, q=0.1, plot=False):
         cutoff_i = np.max(i[np.where(p <= bh_crit)[0]])
     except ValueError:
         return np.array([])
-    signif_idx = np.where(i <= cutoff_i)[0]
+    is_signif = i <= cutoff_i
 
     if plot:
         s = np.argsort(i)
@@ -56,12 +56,12 @@ def argbenhoch(p, q=0.1, plot=False):
         plt.ylim([0, 1])
         plt.show()
 
-    return signif_idx[np.argsort(p[signif_idx])]
+    return is_signif
 
 
-mh_tests = {'ben-hoch': argbenhoch,
-            'crit': lambda p, a=0.05: np.where(p < a)[0],
-            'bonferoni': lambda p, a=0.05: np.where(p < (a / len(p)))[0]}
+mh_tests = {'ben-hoch': benhoch,
+            'crit': lambda p, a=0.05: p < a,
+            'bonferoni': lambda p, a=0.05: p < (a / len(p))}
 
 
 class TanricDataset:

@@ -47,20 +47,42 @@ def import_all_data():
 def perform_t_test(datasets, expr_cutoff=0.3, procedure='crit', **kwargs):
     # FIXME - May need to do some memory management here
     find_signif = mh_tests[procedure]
+    n_counts = np.zeros((datasets[0].n_genes,), dtype=int)
     for ds in datasets:
-        print('\t' + ds.cancer_type)
-        valid = np.any(ds.exprdata > expr_cutoff, 1)
-        norm_valid = ds.normal_samples[valid]
-        tumor_valid = ds.tumor_samples[valid]
-        t, p = ttest_ind(norm_valid, tumor_valid, axis=1)
-        signif = find_signif(p, **kwargs)
-        print('\t\tnum signif = %d' % len(signif))
+        valid_genes = np.mean(ds.exprdata, 1) > expr_cutoff
+        norm_valid = ds.normal_samples[valid_genes]
+        tumor_valid = ds.tumor_samples[valid_genes]
+
+        t = np.zeros((ds.n_genes,))
+        p = np.zeros((ds.n_genes,))
+        t[valid_genes], p[valid_genes] = ttest_ind(norm_valid,
+                                                   tumor_valid, axis=1)
+
+        is_signif = np.zeros((ds.n_genes, ), dtype=bool)
+        is_signif_valid = find_signif(p[valid_genes], **kwargs)
+        is_signif[valid_genes] = is_signif_valid
+        n_counts[is_signif] += 1
+        print('\t%s: # implicated = %d'
+               % (ds.cancer_type, np.count_nonzero(is_signif)))
+
+        ds.results['t_test'] = (t, p, is_signif)
+
+    print('\n\tCount Summary')
+    for i in range(1, max(n_counts) + 1):
+        n = np.count_nonzero(n_counts== i)
+        print('\t\t%4d lncRNAs implicated in %2d cancer types.' % (n, i))
 
 
 if __name__ == "__main__":
-    print('1-Beginning Data Import')
+    print('\n1-Beginning Data Import')
     datasets = import_all_data()
 
-    print('2-Performing t-tests')
+    print('\n2-Performing t-tests')
     perform_t_test(datasets, procedure='bonferoni')
+
+
+
+
+
+
 
