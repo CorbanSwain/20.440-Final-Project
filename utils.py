@@ -67,12 +67,19 @@ mh_tests = {'ben-hoch': benhoch,
 class TanricDataset:
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
+
         self.cancer_type = metadict['Cancer_Type']
+
         self.n_normal_samples = metadict['Num_Normal_Samples']
-        self.normal_sel = np.arange(self.n_normal_samples)
         self.n_tumor_samples = metadict['Num_Tumor_Samples']
         self.n_samples = self.n_normal_samples + self.n_tumor_samples
-        self.tumor_sel = np.arange(self.n_normal_samples, self.n_samples)
+
+        self.normal_sel = np.zeros((self.n_samples,), dtype=bool)
+        self.normal_sel[np.arange(self.n_normal_samples)] = True
+
+        self.tumor_sel = np.zeros((self.n_samples,), dtype=bool)
+        self.tumor_sel[np.arange(self.n_normal_samples, self.n_samples)] = True
+
         self.results = {}
         if expr_structarr is not None:
             self.parse_exprdata(expr_structarr)
