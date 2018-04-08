@@ -1,11 +1,11 @@
 % matlab_io_demo.mat
 % Corban Swain, 2018
 
-%% Structure of 'part_1_analysis_v1.1.mat' Data File
+%% Structure of 'part_1_analysis_v1.2.mat' Data File
 
 % there are three variables in the data file
 var_names = {'S', 'nGenes', 'geneIDs'};
-load('data/matlab_io/part_1_analysis_v1.1.mat', var_names{:});
+load('data/matlab_io/part_1_analysis_v1.2.mat', var_names{:});
 
 % 'S': a struct of structs with a field for each cancer type, named 
 % according to its four letter reference code

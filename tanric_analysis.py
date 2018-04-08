@@ -1,5 +1,5 @@
 #!/bin/python3
-# utils.py
+# tanric_analysis.py
 # Corban Swain, 2018
 
 import os
@@ -80,8 +80,8 @@ def perform_t_test(datasets, expr_cutoff=0.3, procedure='crit', **kwargs):
 def save_for_matlab(datasets, version):
     n_sets = len(datasets)
     matlab_struct = {}
-    col_vec = lambda x: x.reshape((-1, 1))
-    row_vec = lambda x: x.reshape((1, -1))
+    col_vec = lambda x: x.reshape((-1, 1))  # TODO - add to utils
+    row_vec = lambda x: x.reshape((1, -1))  # TODO - add to utils
     for ds in datasets:
         t, p, fc, is_valid, is_signif = ds.results['t_test']
         logfc = np.zeros(fc.shape)
@@ -108,8 +108,8 @@ def save_for_matlab(datasets, version):
 
 
 if __name__ == "__main__":
-    min_normal_samples = 100
-    version = 1.1
+    min_normal_samples = 5
+    version = 1.2
 
     print('\n1-Beginning Data Import')
     datasets = import_all_data(min_normal_samples)
@@ -117,11 +117,11 @@ if __name__ == "__main__":
     print('\n2-Performing t-tests')
     perform_t_test(datasets, expr_cutoff=0.1, procedure='bonferoni')
 
-    print('\nFetching Names ...')
-    names = TanricDataset.geneid2name(datasets[0].gene_ids)
-    gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
-                             'gene_names.npy')
-    np.save(gnamepath, names)
+    # print('\nFetching Names ...')
+    # names = TanricDataset.get_gene_names()
+    # gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
+    #                          'gene_names.npy')
+    # np.save(gnamepath, names)
 
-    # print('\n3-Saving \'.mat\' File')
-    # save_for_matlab(datasets, version)
+    print('\n3-Saving \'.mat\' File')
+    save_for_matlab(datasets, version)

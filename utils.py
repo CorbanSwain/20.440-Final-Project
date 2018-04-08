@@ -44,7 +44,7 @@ def benhoch(p, q=0.1, plot=False):
     m = len(p)
     bh_crit = q * i / m
     try:
-        cutoff_i = np.max(i[np.where(p <= bh_crit)[0]])
+        cutoff_i = np.max(i[p <= bh_crit])
     except ValueError:
         return np.array([])
     is_signif = i <= cutoff_i
@@ -52,7 +52,7 @@ def benhoch(p, q=0.1, plot=False):
     if plot:
         s = np.argsort(i)
         plt.plot(i[s], bh_crit[s],  i[s], p[s])
-        plt.plot(i[signif_idx], p[signif_idx], 'r.')
+        plt.plot(i[is_signif], p[is_signif], 'r.')
         plt.xlabel('Rank')
         plt.ylabel('P Value')
         plt.xlim([0, m])
@@ -63,13 +63,43 @@ def benhoch(p, q=0.1, plot=False):
 
 
 mh_tests = {'ben-hoch': benhoch,
-            'crit': lambda p, a=0.05: p < a,
-            'bonferoni': lambda p, a=0.05: p < (a / len(p))}
+            'crit': lambda p, a=0.05: p <= a,
+            'bonferoni': lambda p, a=0.05: p <= (a / len(p))}
+
+
+ec = NCBI_Client()
+
+
+def geneid2name(gid):
+    """Queries the NCBI database for gene names and descriptions
+
+    :param gids: a string contaning a gene id
+    :return:
+    """
+    id_clean = gid.split('.')[0]
+    search_result = ec.esearch(db='gene', term=id_clean)
+    try:
+        if not search_result.ids:
+            raise IndexError
+        egene = ec.efetch(db='gene',
+                         id=search_result.ids[0]).entrezgenes[0]
+        name_tuple = (egene.hgnc, egene.description)
+    except (IndexError,
+            eutils.exceptions.EutilsNCBIError,
+            eutils.exceptions.EutilsError,
+            eutils.exceptions.EutilsRequestError,
+            eutils.exceptions.EutilsNotFoundError):
+        name_tuple = (gid, gid)
+    return name_tuple
+
 
 
 class TanricDataset:
 
-    # FIXME - gene IDs and lists should be global
+    # FIXME - gene IDs and lists should be class - level atributtes
+    gene_ids = None
+    n_genes = None
+    gene_names = None
 
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
@@ -106,6 +136,8 @@ class TanricDataset:
                              'expression data file (%d).'
                              % (self.n_samples, self.exprdata.shape[1]))
 
+        TanricDataset.gene_ids = self.gene_ids
+        TanricDataset.n_genes = self.n_genes
 
     @property
     def normal_samples(self):
@@ -115,30 +147,19 @@ class TanricDataset:
     def tumor_samples(self):
         return self.exprdata[:, self.tumor_sel]
 
-    @staticmethod
-    def geneid2name(ids):
-        ec = NCBI_Client()
-        n_ids = len(ids)
-        name_arr = np.zeros(n_ids, dtype={'names': ['code', 'description'],
-                                          'formats': ['|S20', '|S100']})
-        for i, gid in enumerate(ids):
-            id_clean = gid.split('.')[0]
-            search_result = ec.esearch(db='gene', term=id_clean)
-            try:
-                if not search_result.ids:
-                    raise IndexError
-                gene = ec.efetch(db='gene',
-                                 id=search_result.ids[0]).entrezgenes[0]
-                name_tuple = (gene.hgnc, gene.description)
-            except (IndexError,
-                    eutils.exceptions.EutilsNCBIError,
-                    eutils.exceptions.EutilsError,
-                    eutils.exceptions.EutilsRequestError,
-                    eutils.exceptions.EutilsNotFoundError):
-                name_tuple = (gid, gid)
-            name_arr[i] = name_tuple
-            stdout.write('\r\t%05d - %05.1f %% - \"%s\"'
-                         % (i, 100*i/n_ids, name_tuple[1]))
-            stdout.flush()
-        stdout.write('\n')
-        return name_arr
+    @classmethod
+    def get_gene_names(cls):
+        if cls.gene_names is None:
+            name_arr = np.zeros(cls.n_genes,
+                                dtype={'names': ['code', 'description'],
+                                       'formats': ['|S20', '|S200']})
+            for i, gid in enumerate(cls.gene_ids):
+                name_tuple = geneid2name(gid)
+                name_arr[i] = name_tuple
+                stdout.write('\r\t%05d - %05.1f %% - \"%s\"'
+                             % (i, 100 * i / cls.n_genes, name_tuple[1]))
+                stdout.flush()
+            stdout.write('\n')
+            cls.gene_names = name_arr
+        return cls.gene_names
+
