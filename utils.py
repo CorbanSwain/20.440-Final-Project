@@ -5,6 +5,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import rankdata
+import eutils.exceptions
+from eutils.client import Client as NCBI_Client
+from sys import stdout
 import warnings
 
 
@@ -65,6 +68,9 @@ mh_tests = {'ben-hoch': benhoch,
 
 
 class TanricDataset:
+
+    # FIXME - gene IDs and lists should be global
+
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
 
@@ -100,6 +106,7 @@ class TanricDataset:
                              'expression data file (%d).'
                              % (self.n_samples, self.exprdata.shape[1]))
 
+
     @property
     def normal_samples(self):
         return self.exprdata[:, self.normal_sel]
@@ -107,3 +114,31 @@ class TanricDataset:
     @property
     def tumor_samples(self):
         return self.exprdata[:, self.tumor_sel]
+
+    @staticmethod
+    def geneid2name(ids):
+        ec = NCBI_Client()
+        n_ids = len(ids)
+        name_arr = np.zeros(n_ids, dtype={'names': ['code', 'description'],
+                                          'formats': ['|S20', '|S100']})
+        for i, gid in enumerate(ids):
+            id_clean = gid.split('.')[0]
+            search_result = ec.esearch(db='gene', term=id_clean)
+            try:
+                if not search_result.ids:
+                    raise IndexError
+                gene = ec.efetch(db='gene',
+                                 id=search_result.ids[0]).entrezgenes[0]
+                name_tuple = (gene.hgnc, gene.description)
+            except (IndexError,
+                    eutils.exceptions.EutilsNCBIError,
+                    eutils.exceptions.EutilsError,
+                    eutils.exceptions.EutilsRequestError,
+                    eutils.exceptions.EutilsNotFoundError):
+                name_tuple = (gid, gid)
+            name_arr[i] = name_tuple
+            stdout.write('\r\t%05d - %05.1f %% - \"%s\"'
+                         % (i, 100*i/n_ids, name_tuple[1]))
+            stdout.flush()
+        stdout.write('\n')
+        return name_arr

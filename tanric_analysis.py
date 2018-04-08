@@ -108,7 +108,7 @@ def save_for_matlab(datasets, version):
 
 
 if __name__ == "__main__":
-    min_normal_samples = 5
+    min_normal_samples = 100
     version = 1.1
 
     print('\n1-Beginning Data Import')
@@ -117,5 +117,11 @@ if __name__ == "__main__":
     print('\n2-Performing t-tests')
     perform_t_test(datasets, expr_cutoff=0.1, procedure='bonferoni')
 
-    print('\n3-Saving \'.mat\' File')
-    save_for_matlab(datasets, version)
+    print('\nFetching Names ...')
+    names = TanricDataset.geneid2name(datasets[0].gene_ids)
+    gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
+                             'gene_names.npy')
+    np.save(gnamepath, names)
+
+    # print('\n3-Saving \'.mat\' File')
+    # save_for_matlab(datasets, version)
