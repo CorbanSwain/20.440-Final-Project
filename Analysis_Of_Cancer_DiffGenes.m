@@ -7,7 +7,8 @@ close all
 clc
 
 var_names = {'S', 'nGenes', 'geneIDs'};
-load('part_1_analysis_v1.2.mat', var_names{:});
+filePath = 'data/matlab_io/part_1_analysis_v1.2.mat';
+load(filePath, var_names{:});
 can_type = fieldnames(S);
 
 for i = 1:length(geneIDs)
