@@ -5,6 +5,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from sys import stdout
 import datetime
 import scipy.io as sio
 from utils import *
@@ -12,6 +13,7 @@ from scipy.stats import ttest_ind
 
 
 def import_all_data(min_normal_samples):
+    print('\nPerforming Data Import ...')
     tanric_dir = os.path.join('data', 'tanric_data')
     names = []
     with open(os.path.join(tanric_dir, 'names.txt')) as names_file:
@@ -38,18 +40,25 @@ def import_all_data(min_normal_samples):
                                  encoding=None, names=True, deletechars='')
             np.save(cachefile, data)
         tds.parse_exprdata(data)
-        print('\tLoaded in dataset for %s (%3d, %3d)'
-              % (tds.cancer_type, tds.n_normal_samples, tds.n_tumor_samples))
+        stdout.write('\r\tLoaded in dataset for %s (%3d, %3d)'
+                     % (tds.cancer_type, tds.n_normal_samples,
+                     tds.n_tumor_samples))
+        stdout.flush()
         datasets.append(tds)
+    stdout.write('\r\tDone.\n')
     return datasets
 
 
-def perform_t_test(datasets, expr_cutoff=0.3, procedure='crit', **kwargs):
+def perform_t_test(datasets, expr_cutoff, procedure, **kwargs):
+    print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
+    # FIXME - Validity testing should be done in its own function
     find_signif = mh_tests[procedure]
-    n_counts = np.zeros((datasets[0].n_genes,), dtype=int)
+    n_counts = np.zeros((TanricDataset.n_genes,), dtype=int)
+    all_valid = np.zeros((TanricDataset.n_genes,), dtype=bool)
     for ds in datasets:
         is_valid = np.mean(ds.exprdata, 1) > expr_cutoff
+        all_valid = np.logical_or(all_valid, is_valid)
         norm_valid = ds.normal_samples[is_valid]
         tumor_valid = ds.tumor_samples[is_valid]
 
@@ -62,23 +71,60 @@ def perform_t_test(datasets, expr_cutoff=0.3, procedure='crit', **kwargs):
         is_signif_valid = find_signif(p[is_valid], **kwargs)
         is_signif[is_valid] = is_signif_valid
         n_counts[is_signif] += 1
-        print('\t%s: # implicated = %d'
-              % (ds.cancer_type, np.count_nonzero(is_signif)))
+        stdout.write('\r\t%s: # implicated = %d'
+                     % (ds.cancer_type, np.count_nonzero(is_signif)))
+        stdout.flush()
 
         # fold change calculation
         fc = np.zeros((ds.n_genes,))
+        # FIXME - parametrize fudge factor
         fc[is_valid] = (np.mean(tumor_valid, 1) + 1e-3) \
             / (np.mean(norm_valid, 1) + 1e-3)
 
         ds.results['t_test'] = (t, p, fc, is_valid, is_signif)
+    stdout.write('\r\tDone.\n')
 
     print('\n\tCount Summary')
+    print('\t\t%4d lncRNAs with significant expression in at least one '
+          'cancer type.\n'
+          % np.count_nonzero(all_valid))
     for i in range(1, max(n_counts) + 1):
         n = np.count_nonzero(n_counts == i)
         print('\t\t%4d lncRNAs implicated in %2d cancer types.' % (n, i))
 
 
-def save_for_matlab(datasets, settings):
+def make_composite_dataset(datasets):
+    n_cancer_samples = 0
+    all_valid = np.ones((TanricDataset.n_genes, ), dtype=bool)
+
+    for ds in datasets:
+        n_cancer_samples += ds.n_tumor_samples
+        _, _, _, is_valid, _ = ds.results['t_test']
+        all_valid = np.logical_and(is_valid, all_valid)
+
+    n_genes = np.count_nonzero(all_valid)
+    comp_set = np.zeros((n_genes, n_cancer_samples))
+    group_labels = np.zeros((n_cancer_samples, ), dtype=np.object)
+    group_numbers = np.zeros((n_cancer_samples, ), dtype=int)
+    insert_idx = 0
+
+    for i, ds in enumerate(datasets):
+        finish = insert_idx + ds.n_tumor_samples
+        insert_range = np.arange(insert_idx, finish, dtype=int)
+        insert_idx = finish
+        # FIXME - parametrize fudge factor
+        norm_expr_val = np.mean(ds.normal_samples[all_valid], 1) + 1e-3
+        expr_vals = ds.tumor_samples[all_valid] + 1e-3
+        fold_change = expr_vals.T / norm_expr_val
+        comp_set[:, insert_range] = np.log2(fold_change.T)
+        group_labels[insert_range] = ds.cancer_type
+        group_numbers[insert_range] = i
+
+    return (comp_set, group_labels, group_numbers)
+
+
+def save_for_matlab(datasets, comp_ds, settings):
+    print('\nSaving results for MATLAB ...')
     n_sets = len(datasets)
     matlab_struct = {}
     cell_arr = lambda x: np.array(x, dtype=np.object)
@@ -105,42 +151,44 @@ def save_for_matlab(datasets, settings):
     n_genes = TanricDataset.n_genes
     gene_ids = cell_arr(TanricDataset.gene_ids)
 
-    # Why am I using ... .copy(order='C')? see
+    # Using ... .copy(order='C') to ensure the slices are contiguous; see
     # https://stackoverflow.com/questions/26778079/valueerror-ndarray-is-not-c-contiguous-in-cython
     gene_codes = TanricDataset.gene_info['code'].copy(order='C')
     gene_codes = cell_arr(gene_codes)
     gene_descriptions = TanricDataset.gene_info['description'].copy(order='C')
     gene_descriptions = cell_arr(gene_descriptions)
 
+    comp_set, labels, nums = comp_ds
+
     matpath = os.path.join('data', 'matlab_io',
-                           'part_1_analysis_v%3.1f.mat' % settings['version'])
+                           'part_1_analysis_v%s.mat' % settings['version'])
     sio.savemat(matpath, {'S': matlab_struct,
                           'nGenes': n_genes,
                           'geneIDs': col_vec(gene_ids),
                           'geneCodes': col_vec(gene_codes),
                           'geneDescriptions': col_vec(gene_descriptions),
-                          'analysisMetadata': settings})
+                          'analysisMetadata': settings,
+                          'combData': comp_set,
+                          'combLabels': labels,
+                          'combNumIDs': nums})
+    print('\tDone.')
 
 
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': 1.3,
+        'version': '2.0',
         'expression_cutoff': 0.1,
         'multi_hyp_procedure': 'bonferoni',
         'analysis_date': str(datetime.datetime.now())
     }
 
-    print('\n1-Beginning Data Import')
     datasets = import_all_data(settings['min_norm_samples'])
+    TanricDataset.get_gene_info()
 
-    print('\n2-Performing t-tests')
     perform_t_test(datasets,
                    expr_cutoff=settings['expression_cutoff'],
                    procedure=settings['multi_hyp_procedure'])
 
-    print('\nFetching Gene Info ...')
-    TanricDataset.get_gene_info()
-
-    print('\n3-Saving \'.mat\' File')
-    save_for_matlab(datasets, settings)
+    comp_ds = make_composite_dataset(datasets)
+    save_for_matlab(datasets, comp_ds, settings)

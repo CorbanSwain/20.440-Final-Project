@@ -157,6 +157,7 @@ class TanricDataset:
 
     @classmethod
     def get_gene_info(cls):
+        print('\nFetching Gene Info ...')
         if cls.gene_info is None:
             gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
                                      'gene_names.npy')
@@ -174,5 +175,6 @@ class TanricDataset:
                     stdout.flush()
                 stdout.write('\n')
                 cls.gene_info = name_arr
+        print('\tDone.')
         return cls.gene_info
 

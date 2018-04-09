@@ -66,7 +66,7 @@ disp(nGenes);
 fprintf('\nOne gene ID: ')
 disp(geneIDs{1});
 
-% 'geneIDs': a cell array of with shape [nGenes, 1] containing the NCBI 
+% 'geneCodes': a cell array of with shape [nGenes, 1] containing the NCBI 
 % HGNC code for each lncRNA gene; this is the same for all datasets
 fprintf('\nOne gene code: ')
 disp(geneCodes{1});
