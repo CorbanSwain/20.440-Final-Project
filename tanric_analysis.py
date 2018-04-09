@@ -5,6 +5,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import datetime
 import scipy.io as sio
 from utils import *
 from scipy.stats import ttest_ind
@@ -77,16 +78,17 @@ def perform_t_test(datasets, expr_cutoff=0.3, procedure='crit', **kwargs):
         print('\t\t%4d lncRNAs implicated in %2d cancer types.' % (n, i))
 
 
-def save_for_matlab(datasets, version):
+def save_for_matlab(datasets, settings):
     n_sets = len(datasets)
     matlab_struct = {}
+    cell_arr = lambda x: np.array(x, dtype=np.object)
     col_vec = lambda x: x.reshape((-1, 1))  # TODO - add to utils
     row_vec = lambda x: x.reshape((1, -1))  # TODO - add to utils
     for ds in datasets:
         t, p, fc, is_valid, is_signif = ds.results['t_test']
         logfc = np.zeros(fc.shape)
         logfc[is_valid] = np.log2(fc[is_valid])
-        sample_names = np.array(ds.sample_names, dtype=np.object)
+        sample_names = cell_arr(ds.sample_names)
         temp_dict = {'tStat': col_vec(t),
                      'pValue': col_vec(p),
                      'fc': col_vec(fc),
@@ -99,29 +101,46 @@ def save_for_matlab(datasets, version):
                      'nSamples': ds.n_samples,
                      'sampleNames': row_vec(sample_names)}
         matlab_struct[ds.cancer_type] = temp_dict
+
+    n_genes = TanricDataset.n_genes
+    gene_ids = cell_arr(TanricDataset.gene_ids)
+
+    # Why am I using ... .copy(order='C')? see
+    # https://stackoverflow.com/questions/26778079/valueerror-ndarray-is-not-c-contiguous-in-cython
+    gene_codes = TanricDataset.gene_info['code'].copy(order='C')
+    gene_codes = cell_arr(gene_codes)
+    gene_descriptions = TanricDataset.gene_info['description'].copy(order='C')
+    gene_descriptions = cell_arr(gene_descriptions)
+
     matpath = os.path.join('data', 'matlab_io',
-                           'part_1_analysis_v%3.1f.mat' % version)
-    n_genes = datasets[0].n_genes
-    gene_ids = np.array(datasets[0].gene_ids, dtype=np.object)
-    sio.savemat(matpath, {'S': matlab_struct, 'nGenes': n_genes,
-                          'geneIDs': col_vec(gene_ids)})
+                           'part_1_analysis_v%3.1f.mat' % settings['version'])
+    sio.savemat(matpath, {'S': matlab_struct,
+                          'nGenes': n_genes,
+                          'geneIDs': col_vec(gene_ids),
+                          'geneCodes': col_vec(gene_codes),
+                          'geneDescriptions': col_vec(gene_descriptions),
+                          'analysisMetadata': settings})
 
 
 if __name__ == "__main__":
-    min_normal_samples = 5
-    version = 1.2
+    settings = {
+        'min_norm_samples': 5,
+        'version': 1.3,
+        'expression_cutoff': 0.1,
+        'multi_hyp_procedure': 'bonferoni',
+        'analysis_date': str(datetime.datetime.now())
+    }
 
     print('\n1-Beginning Data Import')
-    datasets = import_all_data(min_normal_samples)
+    datasets = import_all_data(settings['min_norm_samples'])
 
     print('\n2-Performing t-tests')
-    perform_t_test(datasets, expr_cutoff=0.1, procedure='bonferoni')
+    perform_t_test(datasets,
+                   expr_cutoff=settings['expression_cutoff'],
+                   procedure=settings['multi_hyp_procedure'])
 
-    # print('\nFetching Names ...')
-    # names = TanricDataset.get_gene_names()
-    # gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
-    #                          'gene_names.npy')
-    # np.save(gnamepath, names)
+    print('\nFetching Gene Info ...')
+    TanricDataset.get_gene_info()
 
     print('\n3-Saving \'.mat\' File')
-    save_for_matlab(datasets, version)
+    save_for_matlab(datasets, settings)

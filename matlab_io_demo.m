@@ -1,11 +1,12 @@
 % matlab_io_demo.mat
 % Corban Swain, 2018
 
-%% Structure of 'part_1_analysis_v1.2.mat' Data File
+%% Structure of 'part_1_analysis_v1.3.mat' Data File
 
 % there are three variables in the data file
-var_names = {'S', 'nGenes', 'geneIDs'};
-load('data/matlab_io/part_1_analysis_v1.2.mat', var_names{:});
+var_names = {'S', 'nGenes', 'geneIDs', 'geneCodes', 'geneDescriptions', ...
+   'analysisMetadata'};
+load('data/matlab_io/part_1_analysis_v1.3.mat', var_names{:});
 
 % 'S': a struct of structs with a field for each cancer type, named 
 % according to its four letter reference code
@@ -61,6 +62,23 @@ fprintf('nGenes: ')
 disp(nGenes);
 
 % 'geneIDs': a cell array of with shape [nGenes, 1] containing the ID codes
-%  for each lncRNA gene
-fprintf('One gene ID: ')
+%  for each lncRNA gene; this is the same for all datasets
+fprintf('\nOne gene ID: ')
 disp(geneIDs{1});
+
+% 'geneIDs': a cell array of with shape [nGenes, 1] containing the NCBI 
+% HGNC code for each lncRNA gene; this is the same for all datasets
+fprintf('\nOne gene code: ')
+disp(geneCodes{1});
+
+% 'geneDescriptions': a cell array of with shape [nGenes, 1] containing the
+% NCBI description for each lncRNA gene; this is the same for all datasets
+fprintf('\nOne gene description: ')
+disp(geneDescriptions{1});
+
+% 'analysisMetadata': struct of settings used to run the python script to 
+% generate this data file
+fprintf('\nanalysisMetadata:\n')
+disp(analysisMetadata);
+
+

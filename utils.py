@@ -9,6 +9,7 @@ import eutils.exceptions
 from eutils.client import Client as NCBI_Client
 from sys import stdout
 import warnings
+import os
 
 
 def structarr2nparr(x):
@@ -71,7 +72,7 @@ ec = NCBI_Client()
 
 
 def geneid2name(gid):
-    """Queries the NCBI database for gene names and descriptions
+    """Queries the NCBI database for gene names and descriptions.
 
     :param gids: a string contaning a gene id
     :return:
@@ -93,13 +94,12 @@ def geneid2name(gid):
     return name_tuple
 
 
-
 class TanricDataset:
 
-    # FIXME - gene IDs and lists should be class - level atributtes
+    # DONE - gene IDs and lists should be class - level atributtes
     gene_ids = None
     n_genes = None
-    gene_names = None
+    gene_info = None
 
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
@@ -136,8 +136,16 @@ class TanricDataset:
                              'expression data file (%d).'
                              % (self.n_samples, self.exprdata.shape[1]))
 
-        TanricDataset.gene_ids = self.gene_ids
-        TanricDataset.n_genes = self.n_genes
+        if TanricDataset.n_genes is None:
+            TanricDataset.n_genes = self.n_genes
+        else:
+            assert self.n_genes == TanricDataset.n_genes
+
+        if TanricDataset.gene_ids is None:
+            TanricDataset.gene_ids = self.gene_ids
+        else:
+            assert np.all(self.gene_ids == TanricDataset.gene_ids)
+
 
     @property
     def normal_samples(self):
@@ -148,18 +156,23 @@ class TanricDataset:
         return self.exprdata[:, self.tumor_sel]
 
     @classmethod
-    def get_gene_names(cls):
-        if cls.gene_names is None:
-            name_arr = np.zeros(cls.n_genes,
-                                dtype={'names': ['code', 'description'],
-                                       'formats': ['|S20', '|S200']})
-            for i, gid in enumerate(cls.gene_ids):
-                name_tuple = geneid2name(gid)
-                name_arr[i] = name_tuple
-                stdout.write('\r\t%05d - %05.1f %% - \"%s\"'
-                             % (i, 100 * i / cls.n_genes, name_tuple[1]))
-                stdout.flush()
-            stdout.write('\n')
-            cls.gene_names = name_arr
-        return cls.gene_names
+    def get_gene_info(cls):
+        if cls.gene_info is None:
+            gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
+                                     'gene_names.npy')
+            try:
+                cls.gene_info = np.load(gnamepath)
+            except FileNotFoundError:
+                name_arr = np.zeros(cls.n_genes,
+                                    dtype={'names': ['code', 'description'],
+                                           'formats': ['|S20', '|S200']})
+                for i, gid in enumerate(cls.gene_ids):
+                    name_tuple = geneid2name(gid)
+                    name_arr[i] = name_tuple
+                    stdout.write('\r\t%05d - %05.1f %% - \"%s\"'
+                                 % (i, 100 * i / cls.n_genes, name_tuple[1]))
+                    stdout.flush()
+                stdout.write('\n')
+                cls.gene_info = name_arr
+        return cls.gene_info
 
