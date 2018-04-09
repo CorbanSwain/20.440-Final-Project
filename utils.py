@@ -42,6 +42,18 @@ def file2dict(file, delimiter='\t'):
     return metadict
 
 
+def cell_arr(x):
+    return np.array(x, dtype=np.object)
+
+
+def col_vec(x):
+    return x.reshape((-1, 1))
+
+
+def row_vec (x):
+    return x.reshape((1, -1))
+
+
 # benjamani-hochberg procedure for
 def benhoch(p, q=0.1, plot=False):
     i = rankdata(p, method='ordinal')
@@ -55,7 +67,7 @@ def benhoch(p, q=0.1, plot=False):
 
     if plot:
         s = np.argsort(i)
-        plt.plot(i[s], bh_crit[s],  i[s], p[s])
+        plt.plot(i[s], bh_crit[s], i[s], p[s])
         plt.plot(i[is_signif], p[is_signif], 'r.')
         plt.xlabel('Rank')
         plt.ylabel('P Value')
@@ -70,12 +82,11 @@ mh_tests = {'ben-hoch': benhoch,
             'crit': lambda p, a=0.05: p <= a,
             'bonferoni': lambda p, a=0.05: p <= (a / len(p))}
 
-
 ec = NCBI_Client()
 
 
 def geneid2name(gid):
-    """Queries the NCBI database for gene names and descriptions.
+    """Queries the NCBI database for gene HGNC codes and descriptions.
 
     :param gids: a string contaning a gene id
     :return:
@@ -86,7 +97,7 @@ def geneid2name(gid):
         if not search_result.ids:
             raise IndexError
         egene = ec.efetch(db='gene',
-                         id=search_result.ids[0]).entrezgenes[0]
+                          id=search_result.ids[0]).entrezgenes[0]
         name_tuple = (egene.hgnc, egene.description)
     except (IndexError,
             eutils.exceptions.EutilsNCBIError,
@@ -130,7 +141,6 @@ spinner = Spinner()
 
 
 class TanricDataset:
-
     # DONE - gene IDs and lists should be class - level atributtes
     gene_ids = None
     n_genes = None
@@ -181,7 +191,6 @@ class TanricDataset:
         else:
             assert np.all(self.gene_ids == TanricDataset.gene_ids)
 
-
     @property
     def normal_samples(self):
         return self.exprdata[:, self.normal_sel]
@@ -213,5 +222,3 @@ class TanricDataset:
                 np.save(gnamepath, name_arr)
         print('\tDone.')
         return cls.gene_info
-
-

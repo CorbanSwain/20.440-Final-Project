@@ -49,7 +49,8 @@ def import_all_data(min_normal_samples):
     return datasets
 
 
-def perform_t_test(datasets, expr_cutoff, procedure, **kwargs):
+def perform_t_test(datasets, expr_cutoff, fold_change_fudge, procedure,
+                   **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -77,9 +78,9 @@ def perform_t_test(datasets, expr_cutoff, procedure, **kwargs):
 
         # fold change calculation
         fc = np.zeros((ds.n_genes,))
-        # FIXME - parametrize fudge factor
-        fc[is_valid] = (np.mean(tumor_valid, 1) + 1e-3) \
-            / (np.mean(norm_valid, 1) + 1e-3)
+        # DONE - parametrize fudge factor
+        fc[is_valid] = (np.mean(tumor_valid, 1) + fold_change_fudge) \
+            / (np.mean(norm_valid, 1) + fold_change_fudge)
 
         ds.results['t_test'] = (t, p, fc, is_valid, is_signif)
     stdout.write('\r\tDone.\n')
@@ -105,7 +106,7 @@ def make_composite_dataset(datasets, expr_cutoff, pool_norm,
 
     for ds in datasets:
         n_cancer_samples += ds.n_tumor_samples
-        # FIXME - might have too many ''if pool_norm:'' statements
+        # FIXME - might have too many '''if pool_norm:''' statements
         if pool_norm:
             n_normal_samples += ds.n_normal_samples
         expr_sum += np.sum(ds.tumor_samples, 1)
@@ -114,10 +115,14 @@ def make_composite_dataset(datasets, expr_cutoff, pool_norm,
 
     all_valid = (expr_sum / n_cancer_samples) >= expr_cutoff
 
-    comb_genes = TanricDataset.gene_info['code'][all_valid]
+    comb_genes = TanricDataset.gene_info['code'].copy(order='C')
+    comb_genes = comb_genes[all_valid]
     n_genes = np.count_nonzero(all_valid)
+    spinner.stop()
+    print('\t%d Genes considered significant' % n_genes)
+    spinner.start()
     comp_set = np.zeros((n_genes, n_cancer_samples))
-    group_labels = np.zeros((n_cancer_samples, ), dtype=np.object)
+    group_labels = np.zeros(n_cancer_samples, dtype='|S5')
     group_numbers = np.zeros((n_cancer_samples, ), dtype=int)
     insert_idx = 0
 
@@ -131,17 +136,19 @@ def make_composite_dataset(datasets, expr_cutoff, pool_norm,
         finish = insert_idx + ds.n_tumor_samples
         insert_range = np.arange(insert_idx, finish, dtype=int)
         insert_idx = finish
-        # FIXME - parametrize fudge factor
+        # DONE - parametrize fudge factor
         # DONE - Try pooled normal samples
         if pool_norm:
             norm_expr_val = norm + fold_change_fudge
         else:
-            norm_expr_val = np.mean(ds.normal_samples[all_valid],
-                                    1) + fold_change_fudge
+            norm_expr_val = np.mean(ds.normal_samples[all_valid], 1)
+            norm_expr_val += fold_change_fudge
+
         expr_vals = ds.tumor_samples[all_valid] + fold_change_fudge
         fold_change = expr_vals.T / norm_expr_val
         comp_set[:, insert_range] = np.log2(fold_change.T)
-        group_labels[insert_range] = ds.cancer_type
+        for idx in insert_range:
+            group_labels[idx] = ds.cancer_type
         group_numbers[insert_range] = i
     spinner.stop()
     print('\tDone.')
@@ -153,9 +160,6 @@ def save_for_matlab(datasets, comp_ds, settings):
     spinner.start()
     n_sets = len(datasets)
     matlab_struct = {}
-    cell_arr = lambda x: np.array(x, dtype=np.object) # TODO - add to utils
-    col_vec = lambda x: x.reshape((-1, 1))  # TODO - add to utils
-    row_vec = lambda x: x.reshape((1, -1))  # TODO - add to utils
     for ds in datasets:
         t, p, fc, is_valid, is_signif = ds.results['t_test']
         logfc = np.zeros(fc.shape)
@@ -185,23 +189,30 @@ def save_for_matlab(datasets, comp_ds, settings):
     gene_descriptions = cell_arr(gene_descriptions)
 
     comp_set, labels, nums, comb_genes = comp_ds
-    comb_genes = col_vec(cell_arr(comb_genes.copy(order='C')))
+    labels = cell_arr(labels)
+    comb_genes = cell_arr(comb_genes)
 
-    matpath = os.path.join('data', 'matlab_io',
-                           'part_1_analysis_v%s.mat' % settings['version'])
+    matpath = os.path.join('data', 'matlab_io', '%s_analysis_v%s.mat'
+                           % ('%s', settings['version']))
     spinner.stop()
-    print('\t' + matpath)
+    print('\t' + matpath % 't_test')
     spinner.start()
-    sio.savemat(matpath, {'S': matlab_struct,
-                          'nGenes': n_genes,
-                          'geneIDs': col_vec(gene_ids),
-                          'geneCodes': col_vec(gene_codes),
-                          'geneDescriptions': col_vec(gene_descriptions),
-                          'analysisMetadata': settings,
-                          'combGenes': comb_genes,
-                          'combData': comp_set,
-                          'combLabels': labels,
-                          'combNumIDs': nums})
+    sio.savemat(matpath % 't_test',
+                {'S': matlab_struct,
+                 'nGenes': n_genes,
+                 'geneIDs': col_vec(gene_ids),
+                 'geneCodes': col_vec(gene_codes),
+                 'geneDescriptions': col_vec(gene_descriptions),
+                 'analysisMetadata': settings})
+    spinner.stop()
+    print('\t' + matpath % 'combined')
+    spinner.start()
+    sio.savemat(matpath % 'combined',
+                {'analysisMetadata': settings,
+                 'combGenes': col_vec(comb_genes),
+                 'combData': comp_set,
+                 'combLabels': labels,
+                 'combNumIDs': nums})
     spinner.stop()
     print('\tDone.')
 
@@ -209,7 +220,7 @@ def save_for_matlab(datasets, comp_ds, settings):
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '2.2',
+        'version': '3.0',
         'expression_cutoff': 0.05,
         'multi_hyp_procedure': 'bonferoni',
         'alpha_crit': 0.05,
@@ -222,8 +233,9 @@ if __name__ == "__main__":
     TanricDataset.get_gene_info()
 
     perform_t_test(datasets,
-                   expr_cutoff=settings['expression_cutoff'],
-                   procedure=settings['multi_hyp_procedure'],
+                   settings['expression_cutoff'],
+                   settings['fold_change_fudge'],
+                   settings['multi_hyp_procedure'],
                    a=settings['alpha_crit'])
 
     comp_ds = make_composite_dataset(datasets,
