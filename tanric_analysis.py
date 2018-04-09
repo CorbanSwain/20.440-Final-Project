@@ -93,41 +93,67 @@ def perform_t_test(datasets, expr_cutoff, procedure, **kwargs):
         print('\t\t%4d lncRNAs implicated in %2d cancer types.' % (n, i))
 
 
-def make_composite_dataset(datasets):
+def make_composite_dataset(datasets, expr_cutoff, pool_norm,
+                           fold_change_fudge):
+    print('\nMaking Composite Dataset ...')
+    spinner.start()
     n_cancer_samples = 0
-    all_valid = np.ones((TanricDataset.n_genes, ), dtype=bool)
+    n_normal_samples = 0
+
+    # all_valid = np.ones((TanricDataset.n_genes, ), dtype=bool)
+    expr_sum = np.zeros((TanricDataset.n_genes, ))
 
     for ds in datasets:
         n_cancer_samples += ds.n_tumor_samples
-        _, _, _, is_valid, _ = ds.results['t_test']
-        all_valid = np.logical_and(is_valid, all_valid)
+        # FIXME - might have too many ''if pool_norm:'' statements
+        if pool_norm:
+            n_normal_samples += ds.n_normal_samples
+        expr_sum += np.sum(ds.tumor_samples, 1)
+        # _, _, _, is_valid, _ = ds.results['t_test']
+        # all_valid = np.logical_and(is_valid, all_valid)
 
+    all_valid = (expr_sum / n_cancer_samples) >= expr_cutoff
+
+    comb_genes = TanricDataset.gene_info['code'][all_valid]
     n_genes = np.count_nonzero(all_valid)
     comp_set = np.zeros((n_genes, n_cancer_samples))
     group_labels = np.zeros((n_cancer_samples, ), dtype=np.object)
     group_numbers = np.zeros((n_cancer_samples, ), dtype=int)
     insert_idx = 0
 
+    if pool_norm:
+        norm = np.zeros((n_genes, ))
+        for ds in datasets:
+            norm += np.sum(ds.normal_samples[all_valid], 1)
+        norm /= n_normal_samples
+
     for i, ds in enumerate(datasets):
         finish = insert_idx + ds.n_tumor_samples
         insert_range = np.arange(insert_idx, finish, dtype=int)
         insert_idx = finish
         # FIXME - parametrize fudge factor
-        norm_expr_val = np.mean(ds.normal_samples[all_valid], 1) + 1e-3
-        expr_vals = ds.tumor_samples[all_valid] + 1e-3
+        # DONE - Try pooled normal samples
+        if pool_norm:
+            norm_expr_val = norm + fold_change_fudge
+        else:
+            norm_expr_val = np.mean(ds.normal_samples[all_valid],
+                                    1) + fold_change_fudge
+        expr_vals = ds.tumor_samples[all_valid] + fold_change_fudge
         fold_change = expr_vals.T / norm_expr_val
         comp_set[:, insert_range] = np.log2(fold_change.T)
         group_labels[insert_range] = ds.cancer_type
         group_numbers[insert_range] = i
-
-    return (comp_set, group_labels, group_numbers)
+    spinner.stop()
+    print('\tDone.')
+    return (comp_set, group_labels, group_numbers, comb_genes)
 
 
 def save_for_matlab(datasets, comp_ds, settings):
     print('\nSaving results for MATLAB ...')
+    spinner.start()
     n_sets = len(datasets)
     matlab_struct = {}
-    cell_arr = lambda x: np.array(x, dtype=np.object)
+    cell_arr = lambda x: np.array(x, dtype=np.object) # TODO - add to utils
     col_vec = lambda x: x.reshape((-1, 1))  # TODO - add to utils
     row_vec = lambda x: x.reshape((1, -1))  # TODO - add to utils
     for ds in datasets:
@@ -158,28 +184,37 @@ def save_for_matlab(datasets, comp_ds, settings):
     gene_descriptions = TanricDataset.gene_info['description'].copy(order='C')
     gene_descriptions = cell_arr(gene_descriptions)
 
-    comp_set, labels, nums = comp_ds
+    comp_set, labels, nums, comb_genes = comp_ds
+    comb_genes = col_vec(cell_arr(comb_genes.copy(order='C')))
 
     matpath = os.path.join('data', 'matlab_io',
                            'part_1_analysis_v%s.mat' % settings['version'])
+    spinner.stop()
+    print('\t' + matpath)
+    spinner.start()
     sio.savemat(matpath, {'S': matlab_struct,
                           'nGenes': n_genes,
                           'geneIDs': col_vec(gene_ids),
                           'geneCodes': col_vec(gene_codes),
                           'geneDescriptions': col_vec(gene_descriptions),
                           'analysisMetadata': settings,
+                          'combGenes': comb_genes,
                           'combData': comp_set,
                           'combLabels': labels,
                           'combNumIDs': nums})
+    spinner.stop()
     print('\tDone.')
 
 
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '2.0',
-        'expression_cutoff': 0.1,
+        'version': '2.2',
+        'expression_cutoff': 0.05,
         'multi_hyp_procedure': 'bonferoni',
+        'alpha_crit': 0.05,
+        'pool_normal_samples': True,
+        'fold_change_fudge': 5e-4,
         'analysis_date': str(datetime.datetime.now())
     }
 
@@ -188,7 +223,12 @@ if __name__ == "__main__":
 
     perform_t_test(datasets,
                    expr_cutoff=settings['expression_cutoff'],
-                   procedure=settings['multi_hyp_procedure'])
+                   procedure=settings['multi_hyp_procedure'],
+                   a=settings['alpha_crit'])
 
-    comp_ds = make_composite_dataset(datasets)
+    comp_ds = make_composite_dataset(datasets,
+                                     settings['expression_cutoff'],
+                                     settings['pool_normal_samples'],
+                                     settings['fold_change_fudge'])
+
     save_for_matlab(datasets, comp_ds, settings)

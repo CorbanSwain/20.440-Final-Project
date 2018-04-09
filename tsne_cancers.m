@@ -7,7 +7,7 @@ close all
 clc
 
 % var_names = {'S', 'nGenes', 'geneIDs'};
-filePath = 'data/matlab_io/part_1_analysis_v2.0f.mat';
+filePath = 'data/matlab_io/part_1_analysis_v2.1.mat';
 load(filePath);
 can_type = fieldnames(S);
 
@@ -16,8 +16,9 @@ for i = 1:length(geneIDs)
     geneIDs{i}(v_num:end) = [];
 end
 
-figure(1)
+fh = figure(1);
 rng('default') 
 mapped = tsne(rot90(combData),'Perplexity',10,'Algorithm','exact','Distance','euclidean');
 gscatter(mapped(:,1),mapped(:,2),combLabels',hsv(12),'.',3);
 disp('done')
+savefig(fh, 'figures/tnse_cluster_pooled.fig')

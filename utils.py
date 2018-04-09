@@ -10,6 +10,9 @@ from eutils.client import Client as NCBI_Client
 from sys import stdout
 import warnings
 import os
+import sys
+import time
+import threading
 
 
 def structarr2nparr(x):
@@ -90,8 +93,40 @@ def geneid2name(gid):
             eutils.exceptions.EutilsError,
             eutils.exceptions.EutilsRequestError,
             eutils.exceptions.EutilsNotFoundError):
-        name_tuple = (gid, gid)
+        name_tuple = (id_clean, gid)
     return name_tuple
+
+
+class Spinner:
+    busy = False
+    delay = 0.2
+
+    @staticmethod
+    def spinning_cursor():
+        while 1:
+            for cursor in '|/-\\': yield cursor
+
+    def __init__(self, delay=None):
+        self.spinner_generator = self.spinning_cursor()
+        if delay and float(delay): self.delay = delay
+
+    def spinner_task(self):
+        while self.busy:
+            stdout.write('\r\t' + next(self.spinner_generator))
+            time.sleep(self.delay)
+            stdout.flush()
+        stdout.write('\r')
+
+    def start(self):
+        self.busy = True
+        threading.Thread(target=self.spinner_task).start()
+
+    def stop(self):
+        self.busy = False
+        time.sleep(self.delay)
+
+
+spinner = Spinner()
 
 
 class TanricDataset:
@@ -175,6 +210,8 @@ class TanricDataset:
                     stdout.flush()
                 stdout.write('\n')
                 cls.gene_info = name_arr
+                np.save(gnamepath, name_arr)
         print('\tDone.')
         return cls.gene_info
+
 
