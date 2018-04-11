@@ -137,7 +137,7 @@ def make_composite_dataset(datasets, filter_method, metric,
         elif samples is Samples.ALL:
             n_samples = n_cancer_samples + n_normal_samples
 
-    combined_values = np.zeros((n_genes, n_samples))
+    combined_values = np.zeros((n_genes, n_samples), dtype=np.float64)
     group_labels = np.zeros(n_samples, dtype='|S20')
     label_list = []
     label_counter = 0
@@ -217,14 +217,11 @@ def make_composite_dataset(datasets, filter_method, metric,
             elif samples is Samples.TUMOR:
                 label_list.append(cancer_name)
 
-    np_label_list = np.zeros(len(label_list), dtype='|S20')
-    for i, label in enumerate(label_list):
-        np_label_list[i] = label
     print('\tDone.')
     return (combined_values,
             group_labels,
             group_numbers,
-            np_label_list,
+            strlist2np(label_list),
             genes_names,
             n_genes)
 
@@ -369,7 +366,6 @@ if __name__ == "__main__":
                         samples,
                         settings['fold_change_fudge'])
                 except AssertionError:
-                    spinner.stop()
                     print('\tEXCEPTION: Couldn\'t Process')
                     continue
 
@@ -381,9 +377,7 @@ if __name__ == "__main__":
                 save_for_matlab_2(filename, data, settings)
                 file_list.append(filename)
 
-    ml_file_list = np.zeros(len(file_list), dtype='|S100')
-    for i, f in enumerate(file_list):
-        ml_file_list[i] = f
+
     path = os.path.join('data', 'matlab_io', 'multi_analysis', 'file_list.mat')
-    sio.savemat(path, {'fileNames': matlab_cell_arr(ml_file_list)})
+    sio.savemat(path, {'fileNames': matlab_cell_arr(file_list)})
 

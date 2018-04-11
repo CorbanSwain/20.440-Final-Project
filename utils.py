@@ -43,6 +43,15 @@ def file2dict(file, delimiter='\t'):
     return metadict
 
 
+def strlist2np(x):
+    max_len = max(len(s) for s in x)
+    dtype_str = '|S%d' % max_len
+    np_arr = np.zeros(len(x), dtype=dtype_str)
+    for i, s in enumerate(x):
+        np_arr[i] = s
+    return np_arr
+
+
 def matlab_cell_arr(x):
     return np.array(x, dtype=np.object)
 
@@ -78,39 +87,42 @@ def benhoch(p, q=0.1, plot=False):
 
     return is_signif
 
+class StrEnum(str, Enum):
 
-class Filter(Enum):
+    def __str__(self):
+        return self.value
+
+
+class Filter(StrEnum):
     T_TEST = 't_test'
     THRESHOLD = 'threshold'
     NONE = 'no_filter'
 
 
-class MultiHypProc(Enum):
+class MultiHypProc(StrEnum):
     BONFERONI = 'bonferoni'
     CRITICAL_VALUE = 'crit'
     BEN_HOCH = 'ben_hoch'
 
-    def signif_func(self, **kwargs):
-        return {'ben_hoch': benhoch,
-                'crit': lambda p, a=0.05: p <= a,
-                'bonferoni': lambda p, a=0.05: p <= (a / len(p))
-                }[self.value]
+    def signif_func(self):
+        return {
+            'ben_hoch': benhoch,
+            'crit': lambda p, a=0.05: p <= a,
+            'bonferoni': lambda p, a=0.05: p <= (a / len(p))
+        }[self.value]
 
 
-class Metric(Enum):
+class Metric(StrEnum):
     FC_MEAN = 'fold_change_mean'
     FC_PAIR = 'fold_change_pairwise'
     RPKM = 'rpkm'
     MEAN2MEAN = 'mean_to_mean'
 
 
-class Samples(Enum):
+class Samples(StrEnum):
     TUMOR = 'tumor'
     NORMAL = 'normal'
     ALL = 'all'
-
-
-
 
 
 ec = NCBI_Client()
@@ -140,13 +152,17 @@ def geneid2name(gid):
 
 
 class Spinner:
+    """
+    Spinning cursor for console.
+    """
     busy = False
     delay = 0.2
 
     @staticmethod
     def spinning_cursor():
-        while 1:
-            for cursor in '|/-\\': yield cursor
+        while True:
+            for cursor in '|/-\\':
+                yield cursor
 
     def __init__(self, delay=None):
         self.spinner_generator = self.spinning_cursor()
@@ -204,7 +220,6 @@ class TanricDataset:
         if expr_structarr is not None:
             self.parse_exprdata(expr_structarr)
 
-
     def parse_exprdata(self, expr_structarr):
         self.gene_ids = [s.strip('\"') for s in expr_structarr['Gene_ID']]
         self.n_genes = len(self.gene_ids)
@@ -228,19 +243,16 @@ class TanricDataset:
 
         self.pair_samples()
 
-    def getid(self, idx_sel):
-        id_list = []
-        for i in idx_sel:
-            full_name = self.sample_names[i]
-            id = '-'.join(full_name.split('-')[-2:])
-            id_list.append(id)
-        return id_list
+    def get_patient_id(self, sample_idx):
+        full_name = self.sample_names[sample_idx]
+        patient_id = '-'.join(full_name.split('-')[-2:])
+        return patient_id
 
     def pair_samples(self):
-        idx_normal_sel = list(np.where(self.normal_sel)[0])
-        idx_tumor_sel = list(np.where(self.tumor_sel)[0])
-        normal_ids = self.getid(idx_normal_sel)
-        tumor_ids = self.getid(idx_tumor_sel)
+        idx_normal_sel = np.where(self.normal_sel)[0]
+        idx_tumor_sel = np.where(self.tumor_sel)[0]
+        normal_ids = [self.get_patient_id(i) for i in idx_normal_sel]
+        tumor_ids = [self.get_patient_id(i) for i in idx_tumor_sel]
 
         pairs = []
         for i_normal, n_id in enumerate(normal_ids):
@@ -257,7 +269,6 @@ class TanricDataset:
                                  np.array(tumor_pair_idx, dtype=int))
         else:
             self.n_pairs = 0
-
 
     @property
     def normal_samples(self):
