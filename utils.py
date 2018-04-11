@@ -12,6 +12,8 @@ import warnings
 import os
 import time
 import threading
+from enum import Enum
+
 
 
 def structarr2nparr(x):
@@ -77,9 +79,39 @@ def benhoch(p, q=0.1, plot=False):
     return is_signif
 
 
-mh_tests = {'ben-hoch': benhoch,
-            'crit': lambda p, a=0.05: p <= a,
-            'bonferoni': lambda p, a=0.05: p <= (a / len(p))}
+class Filter(Enum):
+    T_TEST = 't_test'
+    THRESHOLD = 'threshold'
+    NONE = 'no_filter'
+
+
+class MultiHypProc(Enum):
+    BONFERONI = 'bonferoni'
+    CRITICAL_VALUE = 'crit'
+    BEN_HOCH = 'ben_hoch'
+
+    def signif_func(self, **kwargs):
+        return {'ben_hoch': benhoch,
+                'crit': lambda p, a=0.05: p <= a,
+                'bonferoni': lambda p, a=0.05: p <= (a / len(p))
+                }[self.value]
+
+
+class Metric(Enum):
+    FC_MEAN = 'fold_change_mean'
+    FC_PAIR = 'fold_change_pairwise'
+    RPKM = 'rpkm'
+    MEAN2MEAN = 'mean_to_mean'
+
+
+class Samples(Enum):
+    TUMOR = 'tumor'
+    NORMAL = 'normal'
+    ALL = 'all'
+
+
+
+
 
 ec = NCBI_Client()
 
@@ -213,7 +245,7 @@ class TanricDataset:
         pairs = []
         for i_normal, n_id in enumerate(normal_ids):
             try:
-                i_tumor = tumor_ids.index(n_id) + self.n_tumor_samples
+                i_tumor = tumor_ids.index(n_id) + self.n_normal_samples
             except ValueError:
                 continue
             pairs.append((i_normal, i_tumor))

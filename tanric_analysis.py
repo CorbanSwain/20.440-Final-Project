@@ -58,7 +58,7 @@ def perform_t_test(datasets, procedure, **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
-    find_signif = mh_tests[procedure]
+    find_signif = procedure.signif_func()
     n_counts = np.zeros((TanricDataset.n_genes,), dtype=int)
     all_valid = np.zeros((TanricDataset.n_genes,), dtype=bool)
     for ds in datasets:
@@ -91,11 +91,9 @@ def perform_t_test(datasets, procedure, **kwargs):
 
 def make_composite_dataset(datasets, filter_method, metric,
                            samples, fold_change_fudge):
-    print('\nMaking Composite Dataset ...')
-    spinner.start()
-    assert metric == 'fc_pair' and samples == 'tumor'
-    assert metric == 'mean2mean' and samples == 'tumor'
-    t_test_filter = filter_method == 't_test'
+    print('\tMaking Composite Dataset ...')
+    if metric in [Metric.FC_PAIR, Metric.MEAN2MEAN]:
+        assert samples is Samples.TUMOR
 
     # Filtering and counting
     n_datasets = len(datasets)
@@ -103,89 +101,132 @@ def make_composite_dataset(datasets, filter_method, metric,
     n_normal_samples = 0
     n_pairs = 0
     all_valid = np.ones(TanricDataset.n_genes, dtype=bool)
-    if t_test_filter:
+    if filter_method is Filter.T_TEST:
         any_signif = np.zeros(TanricDataset.n_genes, dtype=bool)
     for ds in datasets:
         n_cancer_samples += ds.n_tumor_samples
         n_normal_samples += ds.n_normal_samples
         n_pairs += ds.n_pairs
-        if filter_method == 'none':
+        if filter_method is Filter.NONE:
             is_valid = ds.results['is_nonzero']
-        else:
+        elif filter_method in [Filter.THRESHOLD, Filter.T_TEST]:
             is_valid = ds.results['is_expressed']
         all_valid = np.logical_and(all_valid, is_valid)
-        if t_test_filter:
-            _, _, _, is_signif = ds.results['t_test']
+        if filter_method is Filter.T_TEST:
+            _, _, is_signif = ds.results['t_test']
             any_signif = np.logical_or(any_signif, is_signif)
-    if t_test_filter:
+
+    if filter_method is Filter.T_TEST:
         all_valid = np.logical_and(all_valid, any_signif)
 
     # setting up combined dataset
-    comb_genes = TanricDataset.gene_info['code'].copy(order='C')
-    comb_genes = comb_genes[all_valid]
+    genes_names = TanricDataset.gene_info['code'].copy(order='C')
+    genes_names = genes_names[all_valid]
     n_genes = np.count_nonzero(all_valid)
-    spinner.stop()
     print('\t%d Genes considered significant' % n_genes)
-    spinner.start()
 
-    if metric == 'fc_pair':
+    if metric is Metric.FC_PAIR:
         n_samples = n_pairs
-    elif metric == 'mean2mean':
+    elif metric is Metric.MEAN2MEAN:
         n_samples = n_datasets
     else:
-        if samples == 'normal':
+        if samples is Samples.NORMAL:
             n_samples = n_normal_samples
-        elif samples == 'tumor':
+        elif samples is Samples.TUMOR:
             n_samples = n_cancer_samples
-        elif samples == 'all':
+        elif samples is Samples.ALL:
             n_samples = n_cancer_samples + n_normal_samples
-        else:
-            raise ValueError('Value for sample was unexpected.')
 
-    combined_set = np.zeros((n_genes, n_samples))
+    combined_values = np.zeros((n_genes, n_samples))
     group_labels = np.zeros(n_samples, dtype='|S20')
     label_list = []
+    label_counter = 0
     group_numbers = np.zeros(n_samples, dtype=int)
     insert_idx = 0
 
-    for i, ds in enumerate(datasets):
-        if metric == 'fc_pair':
+    for ds in datasets:
+        if metric == Metric.FC_PAIR:
             end_idx = insert_idx + ds.n_pairs
-        elif metric == 'mean2mean':
+        elif metric == Metric.MEAN2MEAN:
             end_idx = insert_idx + 1
         else:
-            if samples == 'normal':
+            if samples is Samples.NORMAL:
                 end_idx = insert_idx + ds.n_normal_samples
-            elif samples == 'tumor':
+            elif samples is Samples.TUMOR:
                 end_idx = insert_idx + ds.n_tumor_samples
-            else:
+            elif samples is Samples.ALL:
                 end_idx = insert_idx + ds.n_samples
 
         insert_range = np.arange(insert_idx, end_idx, dtype=int)
         insert_idx = end_idx
 
-        if metric == 'rpkm':
+        if metric is Metric.RPKM:
             value_matrix = ds.exprdata[all_valid]
-        elif metric == 'mean2mean' or metric == 'fc_mean':
+        elif metric in [Metric.MEAN2MEAN, Metric.FC_MEAN]:
             norm_expr_val = np.mean(ds.normal_samples[all_valid], 1)
             norm_expr_val += fold_change_fudge
             value_matrix = ((ds.exprdata[all_valid].T +
                             fold_change_fudge) / norm_expr_val).T
             value_matrix = np.log2(value_matrix)
-        elif metric = 'fc_pair':
+        elif metric is Metric.FC_PAIR:
             norm_sel, tumor_sel = ds.sample_pairs
             # FIXME - this could be implemented better, doing excess operations
             normal = ds.exprdata[:, norm_sel] + fold_change_fudge
             tumor = ds.exprdata[:, tumor_sel] + fold_change_fudge
-            value_matrix = tumor[all_valid] / normal[all_valid]
+            value_matrix = tumor[all_valid, :] / normal[all_valid, :]
             value_matrix = np.log2(value_matrix)
 
-        for idx in insert_range:
-            group_labels[idx] = ds.cancer_type
-        group_numbers[insert_range] = i
-    spinner.stop()
+        if samples is Samples.NORMAL:
+            combined_values[:, insert_range] = value_matrix[:, ds.normal_sel]
+        elif samples is Samples.TUMOR:
+            if metric is Metric.MEAN2MEAN:
+                combined_values[:, insert_range] \
+                    = np.mean(value_matrix[:, ds.tumor_sel], 1, keepdims=True)
+            elif metric in [Metric.FC_MEAN, Metric.RPKM]:
+                combined_values[:, insert_range] = value_matrix[:, ds.tumor_sel]
+            elif metric is Metric.FC_PAIR:
+                combined_values[:, insert_range] = value_matrix
+        elif samples is Samples.ALL or metric is Metric.FC_PAIR:
+            combined_values[:, insert_range] = value_matrix
+
+        cancer_name = ds.cancer_type
+        norm_name = 'Normal-' + cancer_name
+        for i, idx in enumerate(insert_range):
+            if samples is Samples.NORMAL:
+                group_labels[idx] = norm_name
+                group_numbers[idx] = label_counter
+            elif samples is Samples.TUMOR:
+                group_labels[idx] = cancer_name
+                group_numbers[idx] = label_counter
+            elif samples is Samples.ALL:
+                if i < ds.n_normal_samples:
+                    group_labels[idx] = norm_name
+                    group_numbers[idx] = label_counter
+                else:
+                    group_labels[idx] = cancer_name
+                    group_numbers[idx] = label_counter + 1
+
+        if samples is Samples.ALL:
+            label_counter = label_counter + 2
+            label_list.append(norm_name)
+            label_list.append(cancer_name)
+        else:
+            label_counter = label_counter + 1
+            if samples is Samples.NORMAL:
+                label_list.append(norm_name)
+            elif samples is Samples.TUMOR:
+                label_list.append(cancer_name)
+
+    np_label_list = np.zeros(len(label_list), dtype='|S20')
+    for i, label in enumerate(label_list):
+        np_label_list[i] = label
     print('\tDone.')
-    return (combined_set, group_labels, group_numbers, comb_genes)
+    return (combined_values,
+            group_labels,
+            group_numbers,
+            np_label_list,
+            genes_names,
+            n_genes)
 
 
 def save_for_matlab(datasets, comp_ds, settings):
@@ -251,35 +292,98 @@ def save_for_matlab(datasets, comp_ds, settings):
     print('\tDone.')
 
 
+def save_for_matlab_2(filename, combined_data, settings):
+    print('\tSaving results for MATLAB ...')
+    spinner.start()
+
+    ml_settings = {}
+    for k, v in settings.items():
+        if isinstance(v, Enum):
+            ml_settings[k] = v.value
+        else:
+            ml_settings[k] = v
+
+    values, g_labels, g_numbers, label_list, gene_names, n_genes = combined_data
+    g_labels = matlab_cell_arr(g_labels)
+    label_list = matlab_cell_arr(label_list)
+    gene_names = matlab_cell_arr(gene_names)
+
+    matpath = os.path.join('data', 'matlab_io',
+                           'multi_analysis', filename)
+
+    sio.savemat(matpath,
+                {'analysisMetadata': ml_settings,
+                 'values': values,
+                 'sampleNames': row_vec(g_labels),
+                 'geneNames': col_vec(gene_names),
+                 'sampleGroupNumbers': row_vec(g_numbers),
+                 'sampleList': label_list,
+                 'numGenes': n_genes})
+    spinner.stop()
+    print('\tDone.')
+
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '3.1',  # TODO - some type of automatic versioning
+        'version': '4.0',  # TODO - some type of automatic versioning
         'expression_cutoff': 0.2,  # 0.3 used in TANRIC paper
-        'filter_method': 't_test',  # t_test, threshold, none
-        'multi_hyp_procedure': 'bonferoni',  #bonferoni, crit, ben_hoch
+        'filter_method': None,
+        'multi_hyp_procedure': MultiHypProc.BONFERONI,
         'alpha_crit': 0.05,
-        'metric': 'fc',  # fc_mean, fc_pair, rpkm, mean2mean
-        'samples': 'tumor',  # tumor, normal, all
+        'metric': None,
+        'samples': None,
         'fold_change_fudge': 5e-4,
         'analysis_date': str(datetime.datetime.now())
     }
 
+    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
+        add_args = {'q': settings['alpha_crit']}
+    else:
+        add_args = {'a': settings['alpha_crit']}
+
     datasets = import_all_data(settings['min_norm_samples'])
+
     TanricDataset.get_gene_info()
 
-    assess_validity(datasets,
-                    settings['expression_cutoff'])
+    assess_validity(datasets, settings['expression_cutoff'])
 
-    perform_t_test(datasets,
-                   settings['multi_hyp_procedure'],
-                   a=settings['alpha_crit'])
+    perform_t_test(datasets, settings['multi_hyp_procedure'], **add_args)
 
-    comp_ds = make_composite_dataset(datasets,
-                                     settings['expression_cutoff'],
-                                     settings['filter_method'],
-                                     settings['metric'],
-                                     settings['samples'],
-                                     settings['fold_change_fudge'])
+    file_list = []
 
-    save_for_matlab(datasets, comp_ds, settings)
+    for filt in Filter:
+        for metric in Metric:
+            for samples in Samples:
+                print('\nANALYSIS - %s - %s - %s'
+                      % (filt.value, metric.value, samples.value))
+
+                settings['filter_method'] = filt
+                settings['metric'] = metric
+                settings['samples'] = samples
+
+                try:
+                    data = make_composite_dataset(
+                        datasets,
+                        filt,
+                        metric,
+                        samples,
+                        settings['fold_change_fudge'])
+                except AssertionError:
+                    spinner.stop()
+                    print('\tEXCEPTION: Couldn\'t Process')
+                    continue
+
+                filename = '%s-%s-%s_v%s.mat' % (filt.value,
+                                                 metric.value,
+                                                 samples.value,
+                                                 settings['version'])
+
+                save_for_matlab_2(filename, data, settings)
+                file_list.append(filename)
+
+    ml_file_list = np.zeros(len(file_list), dtype='|S100')
+    for i, f in enumerate(file_list):
+        ml_file_list[i] = f
+    path = os.path.join('data', 'matlab_io', 'multi_analysis', 'file_list.mat')
+    sio.savemat(path, {'fileNames': matlab_cell_arr(ml_file_list)})
+
