@@ -15,4 +15,4 @@ rng('default')
 mapped = tsne(combData','Perplexity',10,'Algorithm','exact','Distance','euclidean');
 gscatter(mapped(:,1),mapped(:,2),combLabels',hsv(12),'.',3);
 disp('done')
-savefig(fh, 'figures/tnse_cluster_pooled_rot90.fig')
+% savefig(fh, 'figures/tnse_cluster_pooled.fig')

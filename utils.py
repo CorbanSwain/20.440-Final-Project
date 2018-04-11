@@ -54,7 +54,7 @@ def row_vec (x):
     return x.reshape((1, -1))
 
 
-# benjamani-hochberg procedure for
+# benjamani-hochberg procedure for controlling the false discovery rate
 def benhoch(p, q=0.1, plot=False):
     i = rankdata(p, method='ordinal')
     m = len(p)
