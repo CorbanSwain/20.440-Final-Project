@@ -10,9 +10,10 @@ from eutils.client import Client as NCBI_Client
 from sys import stdout
 import warnings
 import os
-import sys
 import time
 import threading
+from enum import Enum
+
 
 
 def structarr2nparr(x):
@@ -42,7 +43,7 @@ def file2dict(file, delimiter='\t'):
     return metadict
 
 
-def cell_arr(x):
+def matlab_cell_arr(x):
     return np.array(x, dtype=np.object)
 
 
@@ -78,9 +79,39 @@ def benhoch(p, q=0.1, plot=False):
     return is_signif
 
 
-mh_tests = {'ben-hoch': benhoch,
-            'crit': lambda p, a=0.05: p <= a,
-            'bonferoni': lambda p, a=0.05: p <= (a / len(p))}
+class Filter(Enum):
+    T_TEST = 't_test'
+    THRESHOLD = 'threshold'
+    NONE = 'no_filter'
+
+
+class MultiHypProc(Enum):
+    BONFERONI = 'bonferoni'
+    CRITICAL_VALUE = 'crit'
+    BEN_HOCH = 'ben_hoch'
+
+    def signif_func(self, **kwargs):
+        return {'ben_hoch': benhoch,
+                'crit': lambda p, a=0.05: p <= a,
+                'bonferoni': lambda p, a=0.05: p <= (a / len(p))
+                }[self.value]
+
+
+class Metric(Enum):
+    FC_MEAN = 'fold_change_mean'
+    FC_PAIR = 'fold_change_pairwise'
+    RPKM = 'rpkm'
+    MEAN2MEAN = 'mean_to_mean'
+
+
+class Samples(Enum):
+    TUMOR = 'tumor'
+    NORMAL = 'normal'
+    ALL = 'all'
+
+
+
+
 
 ec = NCBI_Client()
 
@@ -161,18 +192,32 @@ class TanricDataset:
         self.tumor_sel = np.zeros((self.n_samples,), dtype=bool)
         self.tumor_sel[np.arange(self.n_normal_samples, self.n_samples)] = True
 
+        self.gene_ids = None
+        self.n_genes = None
+        self.sample_names = None
+        self.exprdata = None
+        self.sample_pairs = None
+        self.n_pairs = None
+
         self.results = {}
+
         if expr_structarr is not None:
             self.parse_exprdata(expr_structarr)
-        else:
-            self.gene_ids = None
-            self.n_genes = None
-            self.sample_names = None
-            self.exprdata = None
+
 
     def parse_exprdata(self, expr_structarr):
         self.gene_ids = [s.strip('\"') for s in expr_structarr['Gene_ID']]
         self.n_genes = len(self.gene_ids)
+
+        if TanricDataset.n_genes is None:
+            TanricDataset.n_genes = self.n_genes
+        else:
+            assert self.n_genes == TanricDataset.n_genes
+        if TanricDataset.gene_ids is None:
+            TanricDataset.gene_ids = self.gene_ids
+        else:
+            assert np.all(self.gene_ids == TanricDataset.gene_ids)
+
         self.sample_names = list(expr_structarr.dtype.names[1:])
         self.exprdata = structarr2nparr(expr_structarr[self.sample_names])
         if not (self.n_samples - self.exprdata.shape[1]) < 1:
@@ -181,15 +226,38 @@ class TanricDataset:
                              'expression data file (%d).'
                              % (self.n_samples, self.exprdata.shape[1]))
 
-        if TanricDataset.n_genes is None:
-            TanricDataset.n_genes = self.n_genes
-        else:
-            assert self.n_genes == TanricDataset.n_genes
+        self.pair_samples()
 
-        if TanricDataset.gene_ids is None:
-            TanricDataset.gene_ids = self.gene_ids
+    def getid(self, idx_sel):
+        id_list = []
+        for i in idx_sel:
+            full_name = self.sample_names[i]
+            id = '-'.join(full_name.split('-')[-2:])
+            id_list.append(id)
+        return id_list
+
+    def pair_samples(self):
+        idx_normal_sel = list(np.where(self.normal_sel)[0])
+        idx_tumor_sel = list(np.where(self.tumor_sel)[0])
+        normal_ids = self.getid(idx_normal_sel)
+        tumor_ids = self.getid(idx_tumor_sel)
+
+        pairs = []
+        for i_normal, n_id in enumerate(normal_ids):
+            try:
+                i_tumor = tumor_ids.index(n_id) + self.n_normal_samples
+            except ValueError:
+                continue
+            pairs.append((i_normal, i_tumor))
+
+        if pairs:
+            self.n_pairs = len(pairs)
+            norm_pair_idx, tumor_pair_idx = zip(*pairs)
+            self.sample_pairs = (np.array(norm_pair_idx, dtype=int),
+                                 np.array(tumor_pair_idx, dtype=int))
         else:
-            assert np.all(self.gene_ids == TanricDataset.gene_ids)
+            self.n_pairs = 0
+
 
     @property
     def normal_samples(self):
@@ -203,8 +271,7 @@ class TanricDataset:
     def get_gene_info(cls):
         print('\nFetching Gene Info ...')
         if cls.gene_info is None:
-            gnamepath = os.path.join('data', 'tanric_data', 'np_cache',
-                                     'gene_names.npy')
+            gnamepath = os.path.join('data', 'np_cache', 'gene_names.npy')
             try:
                 cls.gene_info = np.load(gnamepath)
             except FileNotFoundError:
