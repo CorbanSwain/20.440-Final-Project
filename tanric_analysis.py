@@ -50,11 +50,13 @@ def import_all_data(min_normal_samples):
 
 def assess_validity(datasets, expr_cutoff):
     for ds in datasets:
-        ds.results['is_nonzero'] = np.mean(ds.exprdata, 1) > 1e-6
+        ds.results['is_nonzero'] = np.logical_and(
+            np.any(ds.normal_samples > 1e-6, 1),
+            np.any(ds.tumor_samples > 1e-6, 1))
         ds.results['is_expressed'] = np.mean(ds.exprdata, 1) > expr_cutoff
 
 
-def perform_t_test(datasets, procedure, **kwargs):
+def perform_t_test(datasets, t_filter, procedure, **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -62,7 +64,7 @@ def perform_t_test(datasets, procedure, **kwargs):
     n_counts = np.zeros((TanricDataset.n_genes,), dtype=int)
     all_valid = np.zeros((TanricDataset.n_genes,), dtype=bool)
     for ds in datasets:
-        is_valid = ds.results['is_expressed']
+        is_valid = ds.results[t_filter]
         all_valid = np.logical_or(all_valid, is_valid)
         norm_valid = ds.normal_samples[is_valid]
         tumor_valid = ds.tumor_samples[is_valid]
@@ -240,6 +242,42 @@ def make_random_plots(data):
     plt.show()
 
 
+def make_ma_plots(datasets, t_filter, fcf):
+    n_datasets = len(datasets)
+    n_points = n_datasets * TanricDataset.n_genes
+    fc = np.zeros(n_points)
+    mean = np.zeros(n_points)
+    numsignif = np.zeros(TanricDataset.n_genes)
+    valid = np.zeros(n_points, dtype=bool)
+    for i, ds in enumerate(datasets):
+        _, _, is_signif = ds.results['t_test']
+        is_valid = ds.results['is_nonzero']
+        norm_mean = np.mean(ds.normal_samples, 1) + fcf
+        tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
+
+        selec = np.arange(TanricDataset.n_genes, dtype=int) + \
+            TanricDataset.n_genes * i
+        fc[selec] = np.log2(tumor_mean / norm_mean)
+        valid[selec] = is_valid
+        mean[selec] = tumor_mean
+        numsignif += is_signif.astype(int)
+    numsignif = np.repeat(numsignif, n_datasets)
+
+    numsignif = numsignif
+    fc = fc
+    mean = mean
+
+    signif = numsignif.astype(bool)
+    notsignif = np.logical_not(signif)
+
+    plt.figure()
+    plt.scatter(mean, fc, c='k', alpha=0.05)
+    plt.scatter(mean[numsignif == 2], fc[numsignif == 2], c='r', alpha=0.5)
+    plt.show()
+
+
+
+
 def save_for_matlab(datasets, comp_ds, settings):
     print('\nSaving results for MATLAB ...')
     spinner.start()
@@ -334,44 +372,13 @@ def save_for_matlab_2(filename, combined_data, settings):
     print('\tDone.')
 
 
-if __name__ == "__main__":
-    settings = {
-        'min_norm_samples': 5,
-        'version': '4.1',  # TODO - some type of automatic versioning
-        'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
-        'filter_method': None,
-        'multi_hyp_procedure': MultiHypProc.CRITICAL_VALUE,
-        'alpha_crit': 0.05,
-        'metric': None,
-        'samples': None,
-        'fold_change_fudge': 5e-4,
-        'do_save': True,
-        'do_plot': False,
-        'analysis_date': str(datetime.datetime.now())
-    }
-
-    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
-        add_args = {'q': settings['alpha_crit']}
-    else:
-        add_args = {'a': settings['alpha_crit']}
-
-    datasets = import_all_data(settings['min_norm_samples'])
-
-    TanricDataset.get_gene_info()
-
-    TanricDataset.get_transcript_info()
-
-    assess_validity(datasets, settings['expression_cutoff'])
-
-    perform_t_test(datasets, settings['multi_hyp_procedure'], **add_args)
-
+def make_multi_analysis(datasets, settings):
     file_list = []
 
     for filt in Filter:
         for metric in Metric:
             for samples in Samples:
-                print('\nANALYSIS - %s - %s - %s'
-                      % (filt.value, metric.value, samples.value))
+                print('\nANALYSIS - %s - %s - %s' % (filt, metric, samples))
 
                 settings['filter_method'] = filt
                 settings['metric'] = metric
@@ -388,14 +395,10 @@ if __name__ == "__main__":
                     print('\tEXCEPTION: Couldn\'t Process')
                     continue
 
-                if settings['do_plot']:
-                    if metric in [Metric.MEAN2MEAN, Metric.FC_PAIR]:
-                        make_random_plots(data)
-
                 if settings['do_save']:
-                    filename = '%s-%s-%s_v%s.mat' % (filt.value,
-                                                     metric.value,
-                                                     samples.value,
+                    filename = '%s-%s-%s_v%s.mat' % (filt,
+                                                     metric,
+                                                     samples,
                                                      settings['version'])
 
                     save_for_matlab_2(filename, data, settings)
@@ -405,4 +408,46 @@ if __name__ == "__main__":
         path = os.path.join('data', 'matlab_io',
                             'multi_analysis', 'file_list.mat')
         sio.savemat(path, {'fileNames': matlab_cell_arr(file_list)})
+
+
+if __name__ == "__main__":
+    settings = {
+        'min_norm_samples': 5,
+        'version': '4.1',  # TODO - some type of automatic versioning
+        'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
+        'filter_method': None,
+        't_filter': 'is_expressed', # is_nonzero, is_expressed
+        'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
+        'alpha_crit': 0.0000005,
+        'metric': None,
+        'samples': None,
+        'fold_change_fudge': 5e-3,
+        'do_save': True,
+        'do_plot': False,
+        'analysis_date': str(datetime.datetime.now())
+    }
+
+    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
+        add_args = {'q': settings['alpha_crit']}
+    else:
+        add_args = {'a': settings['alpha_crit']}
+
+    datasets = import_all_data(settings['min_norm_samples'])
+
+    TanricDataset.get_gene_info()
+
+    #TanricDataset.get_transcript_info()
+
+    assess_validity(datasets, settings['expression_cutoff'])
+
+    perform_t_test(datasets,
+                   settings['t_filter'],
+                   settings['multi_hyp_procedure'],
+                   **add_args)
+
+    make_ma_plots(datasets,
+                  settings['t_filter'],
+                  settings['fold_change_fudge'])
+
+
 

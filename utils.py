@@ -66,8 +66,8 @@ def row_vec (x):
     return x.reshape((1, -1))
 
 
-# benjamani-hochberg procedure for controlling the false discovery rate
-def benhoch(p, q=0.1, plot=False):
+def benhoch(p, q, plot=False):
+    """benjamani-hochberg procedure for controlling the false discovery rate."""
     i = rankdata(p, method='ordinal')
     m = len(p)
     bh_crit = q * i / m
@@ -89,6 +89,7 @@ def benhoch(p, q=0.1, plot=False):
 
     return is_signif
 
+
 class StrEnum(str, Enum):
 
     def __str__(self):
@@ -109,8 +110,8 @@ class MultiHypProc(StrEnum):
     def signif_func(self):
         return {
             'ben_hoch': benhoch,
-            'crit': lambda p, a=0.05: p <= a,
-            'bonferoni': lambda p, a=0.05: p <= (a / len(p))
+            'crit': lambda p, a: p <= a,
+            'bonferoni': lambda p, a: p <= (a / len(p))
         }[self.value]
 
 
