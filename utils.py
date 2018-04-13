@@ -13,6 +13,8 @@ import os
 import time
 import threading
 from enum import Enum
+import requests
+import pickle
 
 
 
@@ -128,14 +130,17 @@ class Samples(StrEnum):
 ec = NCBI_Client()
 
 
+def clean_id(gid):
+    return gid.split('.')[0]
+
 def geneid2name(gid):
     """Queries the NCBI database for gene HGNC codes and descriptions.
 
     :param gids: a string contaning a gene id
     :return:
     """
-    id_clean = gid.split('.')[0]
-    search_result = ec.esearch(db='gene', term=id_clean)
+    cid = clean_id(gid)
+    search_result = ec.esearch(db='gene', term=cid)
     try:
         if not search_result.ids:
             raise IndexError
@@ -147,7 +152,7 @@ def geneid2name(gid):
             eutils.exceptions.EutilsError,
             eutils.exceptions.EutilsRequestError,
             eutils.exceptions.EutilsNotFoundError):
-        name_tuple = (id_clean, gid)
+        name_tuple = (cid, gid)
     return name_tuple
 
 
@@ -189,9 +194,11 @@ spinner = Spinner()
 
 class TanricDataset:
     # DONE - gene IDs and lists should be class - level atributtes
+    # FIXME - there should be a gene class to handle all of this
     gene_ids = None
     n_genes = None
     gene_info = None
+    transcripts = []
 
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
@@ -243,16 +250,13 @@ class TanricDataset:
 
         self.pair_samples()
 
-    def get_patient_id(self, sample_idx):
-        full_name = self.sample_names[sample_idx]
-        patient_id = '-'.join(full_name.split('-')[-2:])
-        return patient_id
+    @staticmethod
+    def get_patient_id(name):
+        return '-'.join(name.split('-')[-2:])
 
     def pair_samples(self):
-        idx_normal_sel = np.where(self.normal_sel)[0]
-        idx_tumor_sel = np.where(self.tumor_sel)[0]
-        normal_ids = [self.get_patient_id(i) for i in idx_normal_sel]
-        tumor_ids = [self.get_patient_id(i) for i in idx_tumor_sel]
+        normal_ids = [self.get_patient_id(n) for n in self.normal_names]
+        tumor_ids = [self.get_patient_id(n) for n in self.tumor_names]
 
         pairs = []
         for i_normal, n_id in enumerate(normal_ids):
@@ -269,6 +273,16 @@ class TanricDataset:
                                  np.array(tumor_pair_idx, dtype=int))
         else:
             self.n_pairs = 0
+
+    @property
+    def normal_names(self):
+        return [self.sample_names[i] for i in range(self.n_samples)
+                if self.normal_sel[i]]
+
+    @property
+    def tumor_names(self):
+        return [self.sample_names[i] for i in range(self.n_samples)
+                if self.tumor_sel[i]]
 
     @property
     def normal_samples(self):
@@ -300,3 +314,51 @@ class TanricDataset:
                 np.save(gnamepath, name_arr)
         print('\tDone.')
         return cls.gene_info
+
+    @classmethod
+    def get_transcript_info(cls):
+        print('\nLoading all Transcript Info ...')
+        cache_path = os.path.join('data', 'np_cache', 'lncpedia_info.p')
+        try:
+            cls.transcripts = pickle.load(open(cache_path, 'rb'))
+        except FileNotFoundError:
+            for i, gid in enumerate(cls.gene_ids):
+                response_dict = query_lncpedia(gid)
+                if response_dict['count'] < 1:
+                    cls.transcripts.append([])
+                    continue
+                ref_genome = response_dict['refGenome']
+                ts_list = []
+                for ts in response_dict['transcripts']:
+                    ts_list.append(Transcript(ref_genome, ts))
+                cls.transcripts.append(ts_list)
+                stdout.write('\r\t%05d - %05.1f%% - %s'
+                             % (i,
+                                i / cls.n_genes * 100,
+                                cls.transcripts[-1][0].lncpedia_id))
+                stdout.flush()
+            stdout.write('\r\tDone.\n')
+            pickle.dump(cls.transcripts, open(cache_path, 'wb'))
+
+
+
+lncpedia_url = 'https://lncipedia.org/api/search'
+
+
+def query_lncpedia(gid):
+    resp = requests.get(lncpedia_url, params={'id': gid})
+    return resp.json()
+
+
+class Transcript:
+
+    def __init__(self, ref_genome, transcript_dict):
+        self.ref_genome = ref_genome
+        self.sequence = transcript_dict['sequence']
+        self.chromosome = transcript_dict['chromosome']
+        self.start = transcript_dict['start']
+        self.end = transcript_dict['end']
+        self.strand = transcript_dict['strand']
+        self.size = transcript_dict['transcriptSize']
+        self.lncpedia_id = transcript_dict['lncipediaTranscriptID']
+        self.n_aliases = len(transcript_dict['transcriptAliases'])

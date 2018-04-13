@@ -92,6 +92,10 @@ def perform_t_test(datasets, procedure, **kwargs):
 def make_composite_dataset(datasets, filter_method, metric,
                            samples, fold_change_fudge):
     print('\tMaking Composite Dataset ...')
+
+    # FIXME - There is a better way than all these if statements,
+    # maybe implement a set of lambda functions and call them for all of the
+    # operations.
     if metric in [Metric.FC_PAIR, Metric.MEAN2MEAN]:
         assert samples is Samples.TUMOR
 
@@ -186,7 +190,7 @@ def make_composite_dataset(datasets, filter_method, metric,
                 combined_values[:, insert_range] = value_matrix[:, ds.tumor_sel]
             elif metric is Metric.FC_PAIR:
                 combined_values[:, insert_range] = value_matrix
-        elif samples is Samples.ALL or metric is Metric.FC_PAIR:
+        elif samples is Samples.ALL:
             combined_values[:, insert_range] = value_matrix
 
         cancer_name = ds.cancer_type
@@ -224,6 +228,16 @@ def make_composite_dataset(datasets, filter_method, metric,
             strlist2np(label_list),
             genes_names,
             n_genes)
+
+
+def make_random_plots(data):
+    values = data[0]
+
+    fignum = 0
+    fignum += 1
+    plt.figure(fignum)
+    plt.hist(values.reshape(-1), bins=200)
+    plt.show()
 
 
 def save_for_matlab(datasets, comp_ds, settings):
@@ -319,17 +333,20 @@ def save_for_matlab_2(filename, combined_data, settings):
     spinner.stop()
     print('\tDone.')
 
+
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '4.0',  # TODO - some type of automatic versioning
-        'expression_cutoff': 0.2,  # 0.3 used in TANRIC paper
+        'version': '4.1',  # TODO - some type of automatic versioning
+        'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
-        'multi_hyp_procedure': MultiHypProc.BONFERONI,
+        'multi_hyp_procedure': MultiHypProc.CRITICAL_VALUE,
         'alpha_crit': 0.05,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 5e-4,
+        'do_save': True,
+        'do_plot': False,
         'analysis_date': str(datetime.datetime.now())
     }
 
@@ -341,6 +358,8 @@ if __name__ == "__main__":
     datasets = import_all_data(settings['min_norm_samples'])
 
     TanricDataset.get_gene_info()
+
+    TanricDataset.get_transcript_info()
 
     assess_validity(datasets, settings['expression_cutoff'])
 
@@ -369,15 +388,21 @@ if __name__ == "__main__":
                     print('\tEXCEPTION: Couldn\'t Process')
                     continue
 
-                filename = '%s-%s-%s_v%s.mat' % (filt.value,
-                                                 metric.value,
-                                                 samples.value,
-                                                 settings['version'])
+                if settings['do_plot']:
+                    if metric in [Metric.MEAN2MEAN, Metric.FC_PAIR]:
+                        make_random_plots(data)
 
-                save_for_matlab_2(filename, data, settings)
-                file_list.append(filename)
+                if settings['do_save']:
+                    filename = '%s-%s-%s_v%s.mat' % (filt.value,
+                                                     metric.value,
+                                                     samples.value,
+                                                     settings['version'])
 
+                    save_for_matlab_2(filename, data, settings)
+                    file_list.append(filename)
 
-    path = os.path.join('data', 'matlab_io', 'multi_analysis', 'file_list.mat')
-    sio.savemat(path, {'fileNames': matlab_cell_arr(file_list)})
+    if settings['do_save']:
+        path = os.path.join('data', 'matlab_io',
+                            'multi_analysis', 'file_list.mat')
+        sio.savemat(path, {'fileNames': matlab_cell_arr(file_list)})
 
