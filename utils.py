@@ -200,6 +200,7 @@ class TanricDataset:
     n_genes = None
     gene_info = None
     transcripts = []
+    cancer_dict = {}
 
     def __init__(self, metadict, expr_structarr=None):
         self.metadict = metadict
@@ -313,6 +314,13 @@ class TanricDataset:
                 stdout.write('\n')
                 cls.gene_info = name_arr
                 np.save(gnamepath, name_arr)
+
+        if cls.transcripts:
+            for i, ts_list in enumerate(cls.transcripts):
+                if ts_list:
+                    new_code = ts_list[0].lncpedia_name
+                    cls.gene_info['code'][i] = new_code
+
         print('\tDone.')
         return cls.gene_info
 
@@ -340,6 +348,16 @@ class TanricDataset:
                 stdout.flush()
             stdout.write('\r\tDone.\n')
             pickle.dump(cls.transcripts, open(cache_path, 'wb'))
+        return cls.transcripts
+
+    @classmethod
+    def sampleid2name(cls, cid):
+        if not cls.cancer_dict:
+            fname = os.path.join('data', 'tcga_codes', 'diseaseStudy.tsv')
+            cls.cancer_dict = file2dict(fname)
+        return cls.cancer_dict[cid]
+
+
 
 
 
@@ -363,3 +381,7 @@ class Transcript:
         self.size = transcript_dict['transcriptSize']
         self.lncpedia_id = transcript_dict['lncipediaTranscriptID']
         self.n_aliases = len(transcript_dict['transcriptAliases'])
+
+    @property
+    def lncpedia_name(self):
+        return self.lncpedia_id.split(':')[0]
