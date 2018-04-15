@@ -571,8 +571,8 @@ if __name__ == "__main__":
         'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
-        'multi_hyp_procedure': MultiHypProc.BONFERONI,
-        'alpha_crit': 0.01,
+        'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
+        'alpha_crit': 1e-5,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 5e-3,
@@ -582,7 +582,8 @@ if __name__ == "__main__":
     }
 
     if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
-        add_args = {'q': settings['alpha_crit']}
+        add_args = {'q': settings['alpha_crit'],
+                    'plot': False}
     else:
         add_args = {'a': settings['alpha_crit']}
 
