@@ -9,8 +9,8 @@ load(fileListPath, varNames1{:});
 
 % go through each file
 nFiles = length(fileNames);
-for i = [8 16 24]
-    dataFilePath = fullfile(fileNames{i});
+for i = 1
+    dataFilePath = fullfile('no_filter-fold_change_pairwise-tumor_v5.0.mat');
     load(dataFilePath)
     
     % INFO Printing
@@ -31,63 +31,46 @@ for i = [8 16 24]
     % ANALYSIS HERE
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     sampleGroupNumbers = sampleGroupNumbers + 1;
-    values = zscore(values');
+    valuesper = zscore(values,0,2);
+    
+    %For 6 sets only
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    for i = 0:9
+    values = valuesper(geneNumSignif == i ,:)';
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    figure('Name',[fileNames{i} 'Explained Varience'],'NumberTitle','off','Color','w');
+%     figure('Name',[num2str(i) 'Explained Varience'],'NumberTitle','off','Color','w');
     [coeff,score,latent,tsquared,explained] = pca(values);
-    bar(explained)
-    axis([0 10 0 100])
+    score = zscore(score,0,2);
+%     bar(explained)
+%     axis([0 10 0 100])
+%     
+%     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%     figure('Name',[num2str(i)  'Bi-Plot'],'NumberTitle','off','Color','w');
+%     hbi = biplot(coeff(:,1:2),'scores',score(:,1:2),...
+%         'ObsLabels',num2str((1:size(score,1))'));
+%     
+%     cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
+%         '#911eb4';'#46f0f0';'#fabebe';'#008080';...
+%         '#aa6e28';'#aaffc3';'#000080';'#000000']);
+%     
+%     ref = get(hbi(:),'Tag');
+%     ind = find(contains(ref,'obsmarker'));
+%     Norm_ind = find(contains(sampleNames,'Normal'));
+%     Can_ind = find(~contains(sampleNames,'Normal'));
+%     
+%     if ~isempty(Norm_ind)
+%     set(hbi(Norm_ind),'Marker', 'p', 'MarkerSize', 12);
+%     cval = repelem(cval,2,1);
+%     end 
+%     
+%     set(hbi(Can_ind),'Marker','.','MarkerSize',12);
+%     
+%     for ii = 1:length(ind)
+%         set(hbi(ind(ii)),'Color',cval(sampleGroupNumbers(ii),:));
+%     end
     
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    figure('Name',[fileNames{i} 'Bi-Plot'],'NumberTitle','off','Color','w');
-    hbi = biplot(coeff(:,1:2),'scores',score(:,1:2),...
-        'ObsLabels',num2str((1:size(score,1))'));
     
-    cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
-        '#911eb4';'#46f0f0';'#fabebe';'#008080';...
-        '#aa6e28';'#aaffc3';'#000080';'#000000']);
-    
-    ref = get(hbi(:),'Tag');
-    ind = find(contains(ref,'obsmarker'));
-    Norm_ind = find(contains(sampleNames,'Normal'));
-    Can_ind = find(~contains(sampleNames,'Normal'));
-    
-    if ~isempty(Norm_ind)
-    set(hbi(Norm_ind),'Marker', 'p', 'MarkerSize', 12);
-    cval = repelem(cval,2,1);
-    end 
-    
-    set(hbi(Can_ind),'Marker','.','MarkerSize',12);
-    
-    for ii = 1:length(ind)
-        set(hbi(ind(ii)),'Color',cval(sampleGroupNumbers(ii),:));
-    end
-    
-        values = zscore(values');
-    [coeff,score,latent] = pca(values,'NumComponents',2,'Algorithm','als');
-    
-    opts = statset('Display','off');
-    clusterNum = 12;
-    [idscore,C] = kmeans(score,clusterNum,'Distance','correlation',...
-        'Replicates',50,'Options',opts);
-    
-    figure('Name',[fileNames{i} ' K-means plot'],'NumberTitle','off');
-    x1 = min(score(:,1)):0.01:max(score(:,1));
-    x2 = min(score(:,2)):0.01:max(score(:,2));
-    [x1G,x2G] = meshgrid(x1,x2);
-    XGrid = [x1G(:),x2G(:)];
-    idx2Region = kmeans(XGrid,clusterNum,'MaxIter',1,'Start',C);
-    gscatter(XGrid(:,1),XGrid(:,2),idx2Region,hsv(clusterNum),'..');
-    cval = hsv(clusterNum);
-    for v = 1:clusterNum
-        scatter(score(idscore==v,1),score(idscore==v,2),12,cval(v,:),'filled')
-        hold on
-    end
-    plot(C(:,1),C(:,2),'kx','MarkerSize',15,'LineWidth',3)
-    hold off
-    
-
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     %    figValues = figValues + 1;
@@ -104,10 +87,17 @@ for i = [8 16 24]
     %    axis equal
     %    view(45,45)
     %    figValues = figValues + 1;
-    
-   figure('Name',[fileNames{i} 'Gscatter Plot'],'NumberTitle','off','Color','w');
-   gscatter(score(:,1),score(:,2),sampleNames',cval,'.',20)
-%     for i = 1:length(sampleNames)
+%     
+%    figure('Name',[num2str(i) 'Gscatter Plot'],'NumberTitle','off','Color','w');
+   subplot(3,4,i+1)
+   gscatter(score(:,1),score(:,2),sampleNames',cval,'.',10);
+      title(num2str(i))
+      legend off
+      
+
+    end 
+% num2str((geneNumSignif(geneNumSignif >= 6)))
+   %     for i = 1:length(sampleNames)
 %         %        class = find(sampleGroupNumbers == i);
 %         %        scatter(score(class,1),score(class,2),10,'MarkerFaceColor',cval(i,:))
 %         %        hold on
@@ -129,7 +119,7 @@ for i = [8 16 24]
     % MA plot to PCA space
     % gene space clustering with labeled significance and gene expression
     % clustering
-    
+    disp('none')
     
     
     
