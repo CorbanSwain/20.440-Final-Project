@@ -271,13 +271,15 @@ def make_random_plots(data):
     plt.show()
 
 
-def make_ma_plots(datasets, t_filter, fcf):
+def make_ma_plots(datasets, fcf):
     fignum = 0
     n_datasets = len(datasets)
     n_points = n_datasets * TanricDataset.n_genes
     fc = np.zeros(n_points)
     mean = np.zeros(n_points)
     numsignif = np.zeros(TanricDataset.n_genes)
+    signif = np.zeros(n_points)
+    signif2 = np.zeros((TanricDataset.n_genes, n_datasets), dtype=int)
     valid = np.zeros(n_points, dtype=bool)
 
     fignum += 1
@@ -295,6 +297,8 @@ def make_ma_plots(datasets, t_filter, fcf):
         fc[selec] = np.log2(tumor_mean / norm_mean)
         valid[selec] = is_valid
         mean[selec] = tumor_mean
+        signif[selec] = is_signif
+        signif2[:, i] = is_signif
         numsignif += is_signif.astype(int)
 
         sz = 4
@@ -305,12 +309,13 @@ def make_ma_plots(datasets, t_filter, fcf):
         ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.5)
         ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=0.8)
         ax.text(1, 1,
-                '%s\n%.1f%% (%d) significant'
+                '%s\n%.1f%% (%d/%d) significant'
                 % (TanricDataset.sampleid2name(ds.cancer_type),
                    np.count_nonzero(is_signif) / np.count_nonzero(is_valid) *
-                   100, np.count_nonzero(is_signif)),
+                   100, np.count_nonzero(is_signif),
+                   np.count_nonzero(is_valid)),
                 transform=ax.transAxes,
-                family='helvetica',
+                family='Lao Sangam MN',
                 fontsize=10,
                 va='top',
                 ha='right',
@@ -322,39 +327,55 @@ def make_ma_plots(datasets, t_filter, fcf):
         ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
                 linewidth='0.75',
                 zorder=0, alpha=0.5)
+        ax.set_xlabel('Mean')
+        ax.set_ylabel('Log Fold Change')
         ax.set_xlim(-0.1, 10)
         ax.set_ylim(-10, 10)
 
     plt.tight_layout()
     plt.show()
 
-    numsignif = np.repeat(numsignif, n_datasets)
+    gene_nums = np.tile(np.arange(TanricDataset.n_genes, dtype=int), n_datasets)
+    numsignif = np.tile(numsignif, n_datasets)
+    numsignif *= signif.astype(int)
 
     store = (valid, numsignif, mean, fc)
 
     numsignif = numsignif[valid]
     fc = fc[valid]
     mean = mean[valid]
+    gene_nums = gene_nums[valid]
 
     fignum += 1
     fig = plt.figure(fignum, (15, 10))
     grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(4, 3),
                            axes_pad=0.25, label_mode='L',)
 
+    n_valid = np.count_nonzero(valid)
     for i in range(12):
-        signif = numsignif == (i + 1)
-        notsignif = np.logical_not(signif)
-
+        signif_local = (numsignif == (i + 1))
+        notsignif = np.logical_not(signif_local)
+        n_signif = np.count_nonzero(signif_local)
+        n_signif_genes = int(n_signif / (i+1))
         ax = grid[i]
         ax.scatter(mean[notsignif], fc[notsignif], s=sz**2, c='k', alpha=0.3)
-        ax.scatter(mean[signif], fc[signif], s=sz**2, c='r', alpha=0.8)
+        if 0 < n_signif_genes < 16:
+            gn = gene_nums[signif_local]
+            for j, idx in enumerate(np.unique(gn)):
+                selec = np.where(np.logical_and(gene_nums == idx,
+                                                signif_local))[0]
+                ax.scatter(mean[selec], fc[selec], s=sz**2, alpha=1)
+        else:
+            ax.scatter(mean[signif_local], fc[signif_local], s=sz**2, c='r',
+                       alpha=1)
         ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
                 linewidth='0.75',
                 zorder=0, alpha=0.5)
         ax.text(1, 1,
-                'Present in %d Cancers' % (i + 1),
+                'Present in %d Cancers\n %5.1f%% (%d/%d) significant'
+                % (i + 1, n_signif / n_valid * 100, n_signif, n_valid),
                 transform=ax.transAxes,
-                family='helvetica',
+                family='Lao Sangam MN',
                 fontsize=10,
                 va='top',
                 ha='right',
@@ -365,7 +386,7 @@ def make_ma_plots(datasets, t_filter, fcf):
                            lw=0.75)))
         ax.set_xlabel('Mean')
         ax.set_ylabel('Log Fold Change')
-        ax.set_xlim(-0.1, 10)
+        ax.set_xlim(-0.1, max(fc[numsignif > 0])+0.5)
         ax.set_ylim(-10, 10)
 
 
@@ -390,7 +411,7 @@ def make_ma_plots(datasets, t_filter, fcf):
     means = df.median()
     df = df[df.columns[means.argsort()]]
     fignum += 1
-    plt.figure(fignum, (10, 14))
+    plt.figure(fignum, (9, 11))
     ax = plt.subplot(111)
     sns.boxplot(data=df, ax=ax, orient='h', showfliers=False)
     sns.swarmplot(data=df, ax=ax, color='k', size=2, orient='h')
@@ -551,7 +572,7 @@ if __name__ == "__main__":
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BONFERONI,
-        'alpha_crit': 0.005,
+        'alpha_crit': 0.01,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 5e-3,
@@ -578,11 +599,10 @@ if __name__ == "__main__":
                    settings['multi_hyp_procedure'],
                    **add_args)
 
-    make_multi_analysis(datasets, settings)
+    # make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
     make_ma_plots(datasets,
-                  settings['t_filter'],
                   settings['fold_change_fudge'])
 
 
