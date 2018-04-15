@@ -1,16 +1,18 @@
 % multi_analysis_demo.m
 % Corban Swain, 2018
+%%
 close all
 
 % get the list of files
-fileListPath = fullfile('file_list.mat');
+multiAnalysisDir = fullfile('data', 'matlab_io', 'multi_analysis');
+fileListPath = fullfile(multiAnalysisDir, 'file_list.mat');
 varNames1 = {'fileNames'};
 load(fileListPath, varNames1{:});
 
 % go through each file
 nFiles = length(fileNames);
-for i = [8 16 24]
-    dataFilePath = fullfile(fileNames{i});
+for i = 1:nFiles
+    dataFilePath = fullfile(multiAnalysisDir, fileNames{i});
     load(dataFilePath)
     
     % INFO Printing

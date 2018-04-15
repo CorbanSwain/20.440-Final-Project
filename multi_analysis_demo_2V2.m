@@ -3,14 +3,16 @@
 close all
 
 % get the list of files
-fileListPath = fullfile('file_list.mat');
+multiAnalysisDir = fullfile('data', 'matlab_io', 'multi_analysis');
+fileListPath = fullfile(multiAnalysisDir, 'file_list.mat');
 varNames1 = {'fileNames'};
 load(fileListPath, varNames1{:});
 
 % go through each file
 nFiles = length(fileNames);
-for i = 1
-    dataFilePath = fullfile('no_filter-fold_change_pairwise-tumor_v5.0.mat');
+for i = 1:nFiles
+   if analysisMetadata.
+    dataFilePath = fullfile(multiAnalysisDir, fileNames{i});
     load(dataFilePath)
     
     % INFO Printing
@@ -32,11 +34,14 @@ for i = 1
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     sampleGroupNumbers = sampleGroupNumbers + 1;
     valuesper = zscore(values,0,2);
-    
+    figure('Name',fileNames{i},'NumberTitle','off','Color','w');
+    clf;
     %For 6 sets only
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    for i = 0:9
-    values = valuesper(geneNumSignif == i ,:)';
+    low = min(geneNumSignif);
+    high = max(geneNumSignif);
+    for j = low:high
+    values = valuesper(geneNumSignif == j ,:)';
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %     figure('Name',[num2str(i) 'Explained Varience'],'NumberTitle','off','Color','w');
@@ -50,9 +55,9 @@ for i = 1
 %     hbi = biplot(coeff(:,1:2),'scores',score(:,1:2),...
 %         'ObsLabels',num2str((1:size(score,1))'));
 %     
-%     cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
-%         '#911eb4';'#46f0f0';'#fabebe';'#008080';...
-%         '#aa6e28';'#aaffc3';'#000080';'#000000']);
+     cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
+         '#911eb4';'#46f0f0';'#fabebe';'#008080';...
+         '#aa6e28';'#aaffc3';'#000080';'#000000']);
 %     
 %     ref = get(hbi(:),'Tag');
 %     ind = find(contains(ref,'obsmarker'));
@@ -88,12 +93,15 @@ for i = 1
     %    view(45,45)
     %    figValues = figValues + 1;
 %     
-%    figure('Name',[num2str(i) 'Gscatter Plot'],'NumberTitle','off','Color','w');
-   subplot(3,4,i+1)
+
+   try 
+   subplot(3,4,double(j)+double(1))
    gscatter(score(:,1),score(:,2),sampleNames',cval,'.',10);
-      title(num2str(i))
+      title(num2str(j))
       legend off
-      
+   catch
+      print('error')
+   end
 
     end 
 % num2str((geneNumSignif(geneNumSignif >= 6)))

@@ -329,7 +329,7 @@ def make_ma_plots(datasets, fcf):
                 zorder=0, alpha=0.5)
         ax.set_xlabel('Mean')
         ax.set_ylabel('Log Fold Change')
-        ax.set_xlim(-0.1, 10)
+        ax.set_xlim(-0.1, 300)
         ax.set_ylim(-10, 10)
 
     plt.tight_layout()
@@ -386,7 +386,8 @@ def make_ma_plots(datasets, fcf):
                            lw=0.75)))
         ax.set_xlabel('Mean')
         ax.set_ylabel('Log Fold Change')
-        ax.set_xlim(-0.1, max(fc[numsignif > 0])+0.5)
+        # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
+        ax.set_xlim(-0.1, 300)
         ax.set_ylim(-10, 10)
 
 
@@ -567,12 +568,12 @@ def make_multi_analysis(datasets, settings):
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '5.0',  # TODO - some type of automatic versioning
+        'version': '5.1',  # TODO - some type of automatic versioning
         'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
-        'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
-        'alpha_crit': 1e-5,
+        'multi_hyp_procedure': MultiHypProc.BONFERONI,
+        'alpha_crit': 1e-2,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 5e-3,
@@ -600,7 +601,7 @@ if __name__ == "__main__":
                    settings['multi_hyp_procedure'],
                    **add_args)
 
-    # make_multi_analysis(datasets, settings)
+    make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
     make_ma_plots(datasets,
