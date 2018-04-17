@@ -1,4 +1,4 @@
-close all
+
 clear all
 clc
 
@@ -125,17 +125,19 @@ clc
 
 
 % FOR REDUCING THE SIGNIF GENES I DONT KNOW IF THIS IS QUITE RIGHT
-load('no_filter-fold_change_pairwise-tumor_v5.0.mat');
+load('data/matlab_io/multi_analysis/no_filter-fold_change_mean-tumor_v5.0.mat');
 valuesper = zscore(values,0,2);
-figure('Name','w/o','NumberTitle','off','Color','w');
+%figure('Name','w/o','NumberTitle','off','Color','w');
+figure(1)
 clf;
 
+axs = gobjects(10, 1);
 num = nnz(geneNumSignif);
 rng = linspace(.1,1,10);
 rng = round(num.*rng);
 for j = 1:10
     val = valuesper';
-    elim = datasample(find(geneNumSignif > 0),rng(j));
+    elim = datasample(find(geneNumSignif > 0), rng(j), 'Replace', false);
     val(:,elim) = [];
     [coeff,score,latent,tsquared,explained] = pca(val);
 %     score = zscore(score,0,2);
@@ -144,8 +146,8 @@ for j = 1:10
         '#aa6e28';'#aaffc3';'#000080';'#000000']);
     disp(num2str(length(score(:,1))))
     try
-        subplot(3,4,double(j))
-        gscatter(score(:,1),score(:,2),sampleNames',cval,'.',10);
+        axs(j) = subplot(3,4,double(j));
+        gscatter(score(:,3),score(:,4),sampleNames',cval,'.',10);
         title(['# Signifgenes Reduced ' num2str(rng(j))])
         legend off
         axis([-100 100 -60 60])
@@ -154,12 +156,13 @@ for j = 1:10
     end
     
 end
-
+linkaxes(axs)
 % FOR REDUCING THE SIGNIF GENES I DONT KNOW IF THIS IS QUITE RIGHT 
 % RANDOM TESTING
-load('no_filter-fold_change_pairwise-tumor_v5.0.mat');
+load('data/matlab_io/multi_analysis/threshold-fold_change_pairwise-tumor_v5.0.mat');
 valuesper = zscore(values,0,2);
-figure('Name','w/o shuffled','NumberTitle','off','Color','w');
+%figure('Name','w/o shuffled','NumberTitle','off','Color','w');
+figure(2);
 clf;
 
 num = nnz(geneNumSignif);
@@ -167,7 +170,7 @@ rng = linspace(.1,1,10);
 rng = round(num.*rng);
 for j = 1:10
     val = valuesper';
-    elim = datasample(1:length(val),rng(j));
+    elim = datasample(1:length(val), rng(j), 'replace', false);
     val(:,elim) = [];
     [coeff,score,latent,tsquared,explained] = pca(val);
 %     score = zscore(score,0,2);
