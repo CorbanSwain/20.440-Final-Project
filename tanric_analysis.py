@@ -55,13 +55,15 @@ def import_all_data(min_normal_samples):
 
 def assess_validity(datasets, expr_cutoff):
     for ds in datasets:
-        ds.results['is_nonzero'] = np.logical_and(
-            np.any(ds.normal_samples > 1e-6, 1),
-            np.any(ds.tumor_samples > 1e-6, 1))
-        ds.results['is_expressed'] = np.mean(ds.exprdata, 1) > expr_cutoff
+        ds.results['is_nonzero'] = np.logical_or(
+            np.any(ds.normal_samples > 0, 1),
+            np.any(ds.tumor_samples > 0, 1))
+        ds.results['is_expressed'] = np.logical_or(
+            np.mean(ds.normal_samples, 1) > expr_cutoff,
+            np.mean(ds.tumor_samples, 1) > expr_cutoff)
 
 
-def perform_t_test(datasets, t_filter, procedure, **kwargs):
+def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -76,7 +78,18 @@ def perform_t_test(datasets, t_filter, procedure, **kwargs):
 
         t = np.zeros((ds.n_genes,))
         p = np.zeros((ds.n_genes,))
-        t[is_valid], p[is_valid] = ttest_ind(tumor_valid, norm_valid, axis=1)
+
+        if test is 'mwu':
+            idxs = list(np.where(is_valid)[0])
+            for j in range(np.count_nonzero(is_valid)):
+                t[idxs[j]], p[idxs[j]] = mwu((tumor_valid[j, :],
+                                              norm_valid[j, :]))
+        elif test is 't_test':
+            t[is_valid], p[is_valid] = ttest_ind(tumor_valid,
+                                                 norm_valid,
+                                                 axis=1)
+        else:
+            raise ValueError('Unexpected test specification -> \'%s\'.' % test)
 
         is_signif = np.zeros((ds.n_genes,), dtype=bool)
         is_signif_valid = find_signif(p[is_valid], **kwargs)
@@ -308,7 +321,7 @@ def make_ma_plots(datasets, fcf):
         ns = np.logical_and(np.logical_not(is_signif), is_valid)
         ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.5)
         ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=0.8)
-        ax.text(1, 1,
+        ax.text(0.99, 0.985,
                 '%s\n%.1f%% (%d/%d) significant'
                 % (TanricDataset.sampleid2name(ds.cancer_type),
                    np.count_nonzero(is_signif) / np.count_nonzero(is_valid) *
@@ -329,11 +342,11 @@ def make_ma_plots(datasets, fcf):
                 zorder=0, alpha=0.5)
         ax.set_xlabel('Mean')
         ax.set_ylabel('Log Fold Change')
-        ax.set_xlim(-0.1, 300)
-        ax.set_ylim(-10, 10)
+        ax.set_xlim(-0.1, 15)
+        ax.set_ylim(-15, 15)
 
     plt.tight_layout()
-    plt.show()
+    #plt.show()
 
     gene_nums = np.tile(np.arange(TanricDataset.n_genes, dtype=int), n_datasets)
     numsignif = np.tile(numsignif, n_datasets)
@@ -371,9 +384,10 @@ def make_ma_plots(datasets, fcf):
         ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
                 linewidth='0.75',
                 zorder=0, alpha=0.5)
-        ax.text(1, 1,
+        ax.text(0.99, 0.985,
                 'Present in %d Cancers\n %5.1f%% (%d/%d) significant'
-                % (i + 1, n_signif / n_valid * 100, n_signif, n_valid),
+                % (i + 1, n_signif / n_valid * 100, n_signif // (i + 1),
+                   n_valid // n_datasets),
                 transform=ax.transAxes,
                 family='Lao Sangam MN',
                 fontsize=10,
@@ -387,12 +401,12 @@ def make_ma_plots(datasets, fcf):
         ax.set_xlabel('Mean')
         ax.set_ylabel('Log Fold Change')
         # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
-        ax.set_xlim(-0.1, 300)
-        ax.set_ylim(-10, 10)
+        ax.set_xlim(-0.1, 15)
+        ax.set_ylim(-15, 15)
 
 
     plt.tight_layout()
-    plt.show()
+    #plt.show()
 
     valid, numsignif, mean, fc = store
 
@@ -409,19 +423,22 @@ def make_ma_plots(datasets, fcf):
         d[name] = pd.Series(fc_signif)
 
     df = pd.DataFrame(d)
-    means = df.median()
+    means = df.mean()
     df = df[df.columns[means.argsort()]]
     fignum += 1
-    plt.figure(fignum, (9, 11))
+    fig = plt.figure(fignum, (16, 8))
     ax = plt.subplot(111)
-    sns.boxplot(data=df, ax=ax, orient='h', showfliers=False)
-    sns.swarmplot(data=df, ax=ax, color='k', size=2, orient='h')
-    a = np.array(ax.get_ylim())
+    sns.violinplot(data=df, ax=ax, orient='v', showfliers=False, bw=0.15,
+                   linewidth=1, inner=None, cut=0, width=1)
+    sns.swarmplot(data=df, ax=ax, color='k', size=1.5, orient='v', alpha=0.2)
+    a = np.array(ax.get_xlim())
     b = np.array([0, 0])
-    plt.plot(b, a, 'k', lw=0.75, alpha=0.5, zorder=0)
-    plt.xlim(-6, 6)
-    plt.xlabel('Log Fold Change')
+    plt.plot(a, b, 'k', lw=0.75, alpha=0.5, zorder=0)
+    plt.ylim(-13, 13)
+    plt.ylabel('Log Fold Change')
     plt.tight_layout()
+    fig_path = os.path.join('figures', 'cancer_diff_exp_distribution.png')
+    plt.savefig(fig_path, dpi=300)
     plt.show()
 
 
@@ -530,9 +547,9 @@ def save_for_matlab_2(filename, combined_data, settings):
 def make_multi_analysis(datasets, settings):
     file_list = []
 
-    for filt in Filter:
-        for metric in Metric:
-            for samples in Samples:
+    for filt in [Filter.NONE]:
+        for metric in [Metric.FC_MEAN, Metric.FC_PAIR]:
+            for samples in [Samples.TUMOR]:
                 print('\nANALYSIS - %s - %s - %s' % (filt, metric, samples))
 
                 settings['filter_method'] = filt
@@ -568,15 +585,16 @@ def make_multi_analysis(datasets, settings):
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 5,
-        'version': '5.1',  # TODO - some type of automatic versioning
+        'test': 'mwu',  # mwu, t_test
+        'version': '6.2',  # TODO - some type of automatic versioning
         'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BONFERONI,
-        'alpha_crit': 1e-2,
+        'alpha_crit': 5e-4,
         'metric': None,
         'samples': None,
-        'fold_change_fudge': 5e-3,
+        'fold_change_fudge': 1e-4,
         'do_save': True,
         'do_plot': False,
         'analysis_date': str(datetime.datetime.now())
@@ -597,11 +615,13 @@ if __name__ == "__main__":
     assess_validity(datasets, settings['expression_cutoff'])
 
     perform_t_test(datasets,
+                   settings['test'],
                    settings['t_filter'],
                    settings['multi_hyp_procedure'],
                    **add_args)
 
-    make_multi_analysis(datasets, settings)
+
+    # make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
     make_ma_plots(datasets,

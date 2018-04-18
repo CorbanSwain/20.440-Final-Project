@@ -123,9 +123,9 @@ clc
 %     
 % end
 
-
+%%
 % FOR REDUCING THE SIGNIF GENES I DONT KNOW IF THIS IS QUITE RIGHT
-load('data/matlab_io/multi_analysis/no_filter-fold_change_mean-tumor_v5.0.mat');
+load('data/matlab_io/multi_analysis/no_filter-fold_change_pairwise-tumor_v5.0.mat');
 valuesper = zscore(values,0,2);
 %figure('Name','w/o','NumberTitle','off','Color','w');
 figure(1)
@@ -137,18 +137,17 @@ rng = linspace(.1,1,10);
 rng = round(num.*rng);
 for j = 1:10
     val = valuesper';
-    elim = datasample(find(geneNumSignif > 0), rng(j), 'Replace', false);
+    elim = geneNumSignif > j;
     val(:,elim) = [];
     [coeff,score,latent,tsquared,explained] = pca(val);
 %     score = zscore(score,0,2);
     cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
         '#911eb4';'#46f0f0';'#fabebe';'#008080';...
         '#aa6e28';'#aaffc3';'#000080';'#000000']);
-    disp(num2str(length(score(:,1))))
     try
         axs(j) = subplot(3,4,double(j));
-        gscatter(score(:,3),score(:,4),sampleNames',cval,'.',10);
-        title(['# Signifgenes Reduced ' num2str(rng(j))])
+        gscatter(score(:,1),score(:,2),sampleNames',cval,'.',10);
+        title(['# Signifgenes Reduced ' num2str(nnz(elim))])
         legend off
         axis([-100 100 -60 60])
     catch
@@ -157,6 +156,43 @@ for j = 1:10
     
 end
 linkaxes(axs)
+
+%%
+% FOR REDUCING THE SIGNIF GENES I DONT KNOW IF THIS IS QUITE RIGHT
+load('data/matlab_io/multi_analysis/no_filter-fold_change_pairwise-tumor_v5.0.mat');
+valuesper = zscore(values,0,2);
+%figure('Name','w/o','NumberTitle','off','Color','w');
+figure(2)
+clf;
+
+axs = gobjects(10, 1);
+num = nnz(geneNumSignif);
+rng = linspace(.1,1,10);
+rng = round(num.*rng);
+gns2 = datasample(geneNumSignif, length(geneNumSignif), 'replace', true);
+for j = 1:10
+    val = valuesper';
+    elim = gns2 > j;
+    val(:,elim) = [];
+    [coeff,score,latent,tsquared,explained] = pca(val);
+%     score = zscore(score,0,2);
+    cval = hex2rgb(['#e6194b';'#3cb44b';'#ffe119';'#f58231';...
+        '#911eb4';'#46f0f0';'#fabebe';'#008080';...
+        '#aa6e28';'#aaffc3';'#000080';'#000000']);
+    try
+        axs(j) = subplot(3,4,double(j));
+        gscatter(score(:,1),score(:,2),sampleNames',cval,'.',10);
+        title(['# Signifgenes Reduced ' num2str(nnz(elim))])
+        legend off
+        axis([-100 100 -60 60])
+    catch
+        print('error')
+    end
+    
+end
+linkaxes(axs)
+
+%%
 % FOR REDUCING THE SIGNIF GENES I DONT KNOW IF THIS IS QUITE RIGHT 
 % RANDOM TESTING
 load('data/matlab_io/multi_analysis/threshold-fold_change_pairwise-tumor_v5.0.mat');

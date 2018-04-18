@@ -4,7 +4,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import rankdata
+from scipy.stats import rankdata, mannwhitneyu
 import eutils.exceptions
 from eutils.client import Client as NCBI_Client
 from sys import stdout
@@ -15,7 +15,33 @@ import threading
 from enum import Enum
 import requests
 import pickle
+import multiprocessing
 
+
+# parmap implementation for functions with non-trivial execution time
+def funmap(f, q_in, q_out):
+    while True:
+        i, x = q_in.get()
+        if i is None:
+            break
+        q_out.put((i, f(x)))
+    return
+
+
+def parmap(f, X, nprocs=(multiprocessing.cpu_count())):
+    q_in = multiprocessing.Queue(1)
+    q_out = multiprocessing.Queue()
+    proc = [multiprocessing.Process(
+        target=funmap,
+        args=(f, q_in, q_out)) for _ in range(nprocs)]
+    for p in proc:
+        p.daemon = True
+        p.start()
+    [q_in.put((i, x)) for i, x in enumerate(X)]
+    [q_in.put((None, None)) for _ in range(nprocs)]
+    res = [q_out.get() for _ in range(len(X))]
+    [p.join() for p in proc]
+    return [x for i, x in sorted(res)]
 
 
 def structarr2nparr(x):
@@ -65,6 +91,10 @@ def col_vec(x):
 def row_vec (x):
     return x.reshape((1, -1))
 
+
+def mwu(tpl):
+    a, b = tpl
+    return mannwhitneyu(a, b, alternative='two-sided')
 
 def benhoch(p, q, plot=False):
     """benjamani-hochberg procedure for controlling the false discovery rate."""
@@ -385,3 +415,7 @@ class Transcript:
     @property
     def lncpedia_name(self):
         return self.lncpedia_id.split(':')[0]
+
+    #@property
+    #def n_aliases(self):
+    #    return len(self.n_aliases)
