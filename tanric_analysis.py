@@ -2,18 +2,12 @@
 # tanric_analysis.py
 # Corban Swain, 2018
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from sys import stdout
+
 import datetime
 import scipy.io as sio
 from utils import *
 from scipy.stats import ttest_ind
-from mpl_toolkits import axes_grid1
-import seaborn as sns
-import pandas as pd
-import textwrap
+from paper_figures import *
 
 
 def import_all_data(min_normal_samples):
@@ -70,7 +64,8 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
     find_signif = procedure.signif_func()
     n_counts = np.zeros((TanricDataset.n_genes,), dtype=int)
     all_valid = np.zeros((TanricDataset.n_genes,), dtype=bool)
-    for ds in datasets:
+    signif_mat = np.zeros((TanricDataset.n_genes, len(datasets)), dtype=bool)
+    for i, ds in enumerate(datasets):
         is_valid = ds.results[t_filter]
         all_valid = np.logical_or(all_valid, is_valid)
         norm_valid = ds.normal_samples[is_valid]
@@ -94,12 +89,18 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
         is_signif = np.zeros((ds.n_genes,), dtype=bool)
         is_signif_valid = find_signif(p[is_valid], **kwargs)
         is_signif[is_valid] = is_signif_valid
+        signif_mat[:, i] = is_signif
         n_counts[is_signif] += 1
         stdout.write('\r\t%s: # implicated = %d'
                      % (ds.cancer_type, np.count_nonzero(is_signif)))
         stdout.flush()
         ds.results['t_test'] = (t, p, is_signif)
     stdout.write('\r\tDone.\n')
+
+    signif_path = os.path.join('data', 'matlab_io', 'signif_matrix.m')
+    sio.savemat(signif_path, {'isSignif': signif_mat,
+                              'geneNames': matlab_cell_arr(
+                                  TanricDataset.gene_info['code'])})
 
     print('\n\tCount Summary')
     print('\t\t%4d lncRNAs with significant expression in at least one '
@@ -274,174 +275,6 @@ def make_composite_dataset(datasets, filter_method, metric,
             n_genes)
 
 
-def make_random_plots(data):
-    values = data[0]
-
-    fignum = 0
-    fignum += 1
-    plt.figure(fignum)
-    plt.hist(values.reshape(-1), bins=200)
-    plt.show()
-
-
-def make_ma_plots(datasets, fcf):
-    fignum = 0
-    n_datasets = len(datasets)
-    n_points = n_datasets * TanricDataset.n_genes
-    fc = np.zeros(n_points)
-    mean = np.zeros(n_points)
-    numsignif = np.zeros(TanricDataset.n_genes)
-    signif = np.zeros(n_points)
-    signif2 = np.zeros((TanricDataset.n_genes, n_datasets), dtype=int)
-    valid = np.zeros(n_points, dtype=bool)
-
-    fignum += 1
-    fig = plt.figure(fignum, (15, 10))
-    grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(4, 3),
-                           axes_pad=0.25, label_mode='L',)
-    for i, ds in enumerate(datasets):
-        _, _, is_signif = ds.results['t_test']
-        is_valid = ds.results['is_nonzero']
-        norm_mean = np.mean(ds.normal_samples, 1) + fcf
-        tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
-
-        selec = np.arange(TanricDataset.n_genes, dtype=int) + \
-            TanricDataset.n_genes * i
-        fc[selec] = np.log2(tumor_mean / norm_mean)
-        valid[selec] = is_valid
-        mean[selec] = tumor_mean
-        signif[selec] = is_signif
-        signif2[:, i] = is_signif
-        numsignif += is_signif.astype(int)
-
-        sz = 4
-        ax = grid[i]
-        x = tumor_mean
-        y = fc[selec]
-        ns = np.logical_and(np.logical_not(is_signif), is_valid)
-        ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.5)
-        ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=0.8)
-        ax.text(0.99, 0.985,
-                '%s\n%.1f%% (%d/%d) significant'
-                % (TanricDataset.sampleid2name(ds.cancer_type),
-                   np.count_nonzero(is_signif) / np.count_nonzero(is_valid) *
-                   100, np.count_nonzero(is_signif),
-                   np.count_nonzero(is_valid)),
-                transform=ax.transAxes,
-                family='Lao Sangam MN',
-                fontsize=10,
-                va='top',
-                ha='right',
-                bbox=(dict(boxstyle='square',
-                           facecolor='white',
-                           ec='k',
-                           alpha=1,
-                           lw=0.75)))
-        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
-                linewidth='0.75',
-                zorder=0, alpha=0.5)
-        ax.set_xlabel('Mean')
-        ax.set_ylabel('Log Fold Change')
-        ax.set_xlim(-0.1, 15)
-        ax.set_ylim(-15, 15)
-
-    plt.tight_layout()
-    #plt.show()
-
-    gene_nums = np.tile(np.arange(TanricDataset.n_genes, dtype=int), n_datasets)
-    numsignif = np.tile(numsignif, n_datasets)
-    numsignif *= signif.astype(int)
-
-    store = (valid, numsignif, mean, fc)
-
-    numsignif = numsignif[valid]
-    fc = fc[valid]
-    mean = mean[valid]
-    gene_nums = gene_nums[valid]
-
-    fignum += 1
-    fig = plt.figure(fignum, (15, 10))
-    grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(4, 3),
-                           axes_pad=0.25, label_mode='L',)
-
-    n_valid = np.count_nonzero(valid)
-    for i in range(12):
-        signif_local = (numsignif == (i + 1))
-        notsignif = np.logical_not(signif_local)
-        n_signif = np.count_nonzero(signif_local)
-        n_signif_genes = int(n_signif / (i+1))
-        ax = grid[i]
-        ax.scatter(mean[notsignif], fc[notsignif], s=sz**2, c='k', alpha=0.3)
-        if 0 < n_signif_genes < 16:
-            gn = gene_nums[signif_local]
-            for j, idx in enumerate(np.unique(gn)):
-                selec = np.where(np.logical_and(gene_nums == idx,
-                                                signif_local))[0]
-                ax.scatter(mean[selec], fc[selec], s=sz**2, alpha=1)
-        else:
-            ax.scatter(mean[signif_local], fc[signif_local], s=sz**2, c='r',
-                       alpha=1)
-        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
-                linewidth='0.75',
-                zorder=0, alpha=0.5)
-        ax.text(0.99, 0.985,
-                'Present in %d Cancers\n %5.1f%% (%d/%d) significant'
-                % (i + 1, n_signif / n_valid * 100, n_signif // (i + 1),
-                   n_valid // n_datasets),
-                transform=ax.transAxes,
-                family='Lao Sangam MN',
-                fontsize=10,
-                va='top',
-                ha='right',
-                bbox=(dict(boxstyle='square',
-                           facecolor='white',
-                           ec='k',
-                           alpha=1,
-                           lw=0.75)))
-        ax.set_xlabel('Mean')
-        ax.set_ylabel('Log Fold Change')
-        # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
-        ax.set_xlim(-0.1, 15)
-        ax.set_ylim(-15, 15)
-
-
-    plt.tight_layout()
-    #plt.show()
-
-    valid, numsignif, mean, fc = store
-
-    d = {}
-    for i, ds in enumerate(datasets):
-        selec = np.arange(TanricDataset.n_genes, dtype=int) + \
-                TanricDataset.n_genes * i
-        fc_signif = fc[selec]
-        _, _, is_signif = ds.results['t_test']
-        sig = np.logical_and(is_signif, valid[selec])
-        fc_signif = fc_signif[sig]
-        name = TanricDataset.sampleid2name(ds.cancer_type)
-        name = '\n'.join(textwrap.wrap(name, 15))
-        d[name] = pd.Series(fc_signif)
-
-    df = pd.DataFrame(d)
-    means = df.mean()
-    df = df[df.columns[means.argsort()]]
-    fignum += 1
-    fig = plt.figure(fignum, (16, 8))
-    ax = plt.subplot(111)
-    sns.violinplot(data=df, ax=ax, orient='v', showfliers=False, bw=0.15,
-                   linewidth=1, inner=None, cut=0, width=1)
-    sns.swarmplot(data=df, ax=ax, color='k', size=1.5, orient='v', alpha=0.2)
-    a = np.array(ax.get_xlim())
-    b = np.array([0, 0])
-    plt.plot(a, b, 'k', lw=0.75, alpha=0.5, zorder=0)
-    plt.ylim(-13, 13)
-    plt.ylabel('Log Fold Change')
-    plt.tight_layout()
-    fig_path = os.path.join('figures', 'cancer_diff_exp_distribution.png')
-    plt.savefig(fig_path, dpi=300)
-    plt.show()
-
-
 def save_for_matlab(datasets, comp_ds, settings):
     print('\nSaving results for MATLAB ...')
     spinner.start()
@@ -591,11 +424,11 @@ if __name__ == "__main__":
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BONFERONI,
-        'alpha_crit': 5e-4,
+        'alpha_crit': 5e-3,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 1e-4,
-        'do_save': True,
+        'do_save': False,
         'do_plot': False,
         'analysis_date': str(datetime.datetime.now())
     }
@@ -620,12 +453,14 @@ if __name__ == "__main__":
                    settings['multi_hyp_procedure'],
                    **add_args)
 
-
-    # make_multi_analysis(datasets, settings)
+    make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
+
+    # make_simple_charts(datasets)
+
     make_ma_plots(datasets,
-                  settings['fold_change_fudge'])
+                 settings['fold_change_fudge'])
 
 
 

@@ -224,7 +224,6 @@ spinner = Spinner()
 
 
 class TanricDataset:
-    # DONE - gene IDs and lists should be class - level atributtes
     # FIXME - there should be a gene class to handle all of this
     gene_ids = None
     n_genes = None
@@ -349,7 +348,8 @@ class TanricDataset:
             for i, ts_list in enumerate(cls.transcripts):
                 if ts_list:
                     new_code = ts_list[0].lncpedia_name
-                    cls.gene_info['code'][i] = new_code
+                    if 'ENSG' in str(cls.gene_info['code'][i]):
+                        cls.gene_info['code'][i] = new_code
 
         print('\tDone.')
         return cls.gene_info
