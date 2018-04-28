@@ -3,9 +3,9 @@
 # Corban Swain, 2018
 
 
+from utils import *
 import datetime
 import scipy.io as sio
-from utils import *
 from scipy.stats import ttest_ind
 from paper_figures import *
 

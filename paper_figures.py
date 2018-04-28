@@ -12,6 +12,21 @@ import pandas as pd
 import textwrap
 
 
+def make_correl_cluster(datasets):
+    n_datasets = len(datasets)
+    n_genes = TanricDataset.n_genes
+    signif = np.zeros((n_genes, n_datasets), dtype=bool)
+    fc_means = np.zeros((n_genes, n_datasets))
+    n_total_samples = sum(ds.n_tumor_samples for ds in datasets)
+    signif_all = np.zeros((n_genes, n_total_samples))
+    fc_all = np.zeros((n_genes, n_total_samples))
+
+    for i_ds, ds in enumerate(datasets):
+        _, _, iss = ds.results['t_test']
+        signif[:, i_ds] = iss
+
+
+
 def make_simple_charts(datasets):
     # Significance count histogram
     n_datasets = len(datasets)
