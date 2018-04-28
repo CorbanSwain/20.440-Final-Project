@@ -127,6 +127,7 @@ def make_composite_dataset(datasets, filter_method, metric,
     n_pairs = 0
     all_valid = np.ones(TanricDataset.n_genes, dtype=bool)
     num_signif = np.zeros(TanricDataset.n_genes, dtype=int)
+    signif_matrix = np.zeros((TanricDataset.n_genes, n_datasets))
     if filter_method is Filter.T_TEST:
         any_signif = np.zeros(TanricDataset.n_genes, dtype=bool)
 
@@ -141,11 +142,12 @@ def make_composite_dataset(datasets, filter_method, metric,
         except ValueError:
             num_annotations_v2[i_gene] = 0
 
-    for ds in datasets:
+    for i_ds, ds in enumerate(datasets):
         n_cancer_samples += ds.n_tumor_samples
         n_normal_samples += ds.n_normal_samples
         n_pairs += ds.n_pairs
         _, _, is_signif = ds.results['t_test']
+        signif_matrix[:, i_ds] = is_signif
         num_signif += is_signif.astype(int)
         if filter_method is Filter.NONE:
             is_valid = ds.results['is_nonzero']
@@ -162,6 +164,7 @@ def make_composite_dataset(datasets, filter_method, metric,
     # setting up combined dataset
     genes_names = TanricDataset.gene_info['code'].copy(order='C')
     gene_descr = TanricDataset.gene_info['description'].copy(order='C')
+    signif_matrix = signif_matrix[all_valid, :]
     genes_names = genes_names[all_valid]
     gene_descr = gene_descr[all_valid]
     num_signif = num_signif[all_valid]
@@ -270,6 +273,7 @@ def make_composite_dataset(datasets, filter_method, metric,
             genes_names,
             gene_descr,
             num_signif,
+            signif_matrix,
             num_annotations_v1,
             num_annotations_v2,
             n_genes)
@@ -350,7 +354,7 @@ def save_for_matlab_2(filename, combined_data, settings):
             ml_settings[k] = v
 
     values, g_labels, g_numbers, label_list, gene_names, gene_descr, \
-        num_signif, n_anat1, n_anat2, n_genes = combined_data
+        num_signif, signif_mat, n_anat1, n_anat2, n_genes = combined_data
     n_samples = len(g_labels)
     g_labels = matlab_cell_arr(g_labels)
     label_list = matlab_cell_arr(label_list)
@@ -371,6 +375,7 @@ def save_for_matlab_2(filename, combined_data, settings):
                  'geneNames': col_vec(gene_names),
                  'geneDescrips': col_vec(gene_descr),
                  'geneNumSignif': col_vec(num_signif),
+                 'signifMatrix': signif_mat,
                  'geneNumAnat1': col_vec(n_anat1),
                  'geneNumAnat2': col_vec(n_anat2)})
     spinner.stop()
