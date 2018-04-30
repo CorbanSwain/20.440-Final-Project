@@ -281,7 +281,7 @@ def make_ma_plots(datasets, fcf):
     n_valid = np.count_nonzero(valid)
     for i in range(12):
         signif_local = (numsignif == (i + 1))
-        notsignif = np.logical_not(signif_local)
+        notsignif = (numsignif == 0)
         n_signif = np.count_nonzero(signif_local)
         n_signif_genes = int(n_signif / (i+1))
         ax = grid[i]
@@ -357,3 +357,181 @@ def make_ma_plots(datasets, fcf):
     # fig_path = os.path.join('figures', 'cancer_diff_exp_distribution.png')
     # plt.savefig(fig_path, dpi=300)
     plt.show()
+
+
+def make_ma_plots_2(datasets, fcf):
+    fignum = 10
+    n_datasets = len(datasets)
+    n_points = n_datasets * TanricDataset.n_genes
+    fc = np.zeros(n_points)
+    qls = np.zeros(n_points)
+    mean = np.zeros(n_points)
+    numsignif = np.zeros(TanricDataset.n_genes)
+    signif = np.zeros(n_points)
+    signif2 = np.zeros((TanricDataset.n_genes, n_datasets), dtype=int)
+    valid = np.zeros(n_points, dtype=bool)
+
+    fignum += 1
+    fig = plt.figure(fignum, (15, 10))
+    grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(2, 5),
+                           axes_pad=0.25, label_mode='L',)
+    for i, ds in enumerate(datasets):
+        _, _, is_signif = ds.results['t_test']
+        q = ds.results['q_values']
+        is_valid = ds.results['is_expressed']
+        norm_mean = np.mean(ds.normal_samples, 1) + fcf
+        tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
+
+        selec = np.arange(TanricDataset.n_genes, dtype=int) + \
+            TanricDataset.n_genes * i
+        fc[selec] = np.log2(tumor_mean / norm_mean)
+        qls[selec] = -np.log10(q)
+        valid[selec] = is_valid
+        mean[selec] = tumor_mean
+        signif[selec] = is_signif
+        signif2[:, i] = is_signif
+        numsignif += is_signif.astype(int)
+
+        sz = 4
+        ax = grid[i]
+        y = qls[selec]
+        x = fc[selec]
+        ns = np.logical_and(np.logical_not(is_signif), is_valid)
+        ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.5)
+        ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=0.8)
+        ax.text(0.99, 0.980,
+                '%s\n%.1f%% (%d/%d) significant'
+                % (TanricDataset.sampleid2name(ds.cancer_type),
+                   np.count_nonzero(is_signif) / np.count_nonzero(is_valid) *
+                   100, np.count_nonzero(is_signif),
+                   np.count_nonzero(is_valid)),
+                transform=ax.transAxes,
+                family='Lao Sangam MN',
+                fontsize=8,
+                va='top',
+                ha='right',
+                bbox=(dict(boxstyle='square',
+                           facecolor='white',
+                           ec='k',
+                           alpha=1,
+                           lw=0.75)))
+        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
+                linewidth='0.75',
+                zorder=0, alpha=0.5)
+        ax.set_ylabel('-Log10 q-Value')
+        ax.set_xlabel('Log2 Fold Change')
+        ax.set_ylim(-0.1, 75)
+        ax.set_xlim(-15, 15)
+
+    plt.tight_layout()
+    fig_path = os.path.join('figures', 'volcano_by_cancer.png')
+    plt.savefig(fig_path, dpi=300)
+    plt.show()
+
+    gene_nums = np.tile(np.arange(TanricDataset.n_genes, dtype=int), n_datasets)
+    numsignif = np.tile(numsignif, n_datasets)
+    numsignif *= signif.astype(int)
+
+    store = (valid, numsignif, mean, fc)
+
+    numsignif = numsignif[valid]
+    fc = fc[valid]
+    qls = qls[valid]
+    mean = mean[valid]
+    gene_nums = gene_nums[valid]
+
+    fignum += 1
+    fig = plt.figure(fignum, (15, 10))
+    grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(2, 5),
+                           axes_pad=0.25, label_mode='L',)
+
+    n_valid = np.count_nonzero(valid)
+    for i in range(n_datasets):
+        signif_local = (numsignif == (i + 1))
+        notsignif = numsignif == 0
+        n_signif = np.count_nonzero(signif_local)
+        n_signif_genes = int(n_signif / (i+1))
+        ax = grid[i]
+        # FIXME - var names should be better
+        aa = qls[notsignif]
+        bb = fc[notsignif]
+        ax.scatter(bb, aa, s=sz**2, c='k', alpha=0.3)
+        if 0 < n_signif_genes < 16:
+            gn = gene_nums[signif_local]
+            for j, idx in enumerate(np.unique(gn)):
+                selec = np.where(np.logical_and(gene_nums == idx,
+                                                signif_local))[0]
+                n = bytes.decode(TanricDataset.gene_info['code'][idx],
+                                 'utf-8')
+                a2 = qls[selec]
+                b2 = fc[selec]
+                ax.scatter(b2, a2, s=sz**2, alpha=1, label=n)
+            ax.legend(facecolor='white', framealpha=0.8, loc='lower right',
+                      ncol=3)
+        else:
+            a2 = qls[signif_local]
+            b2 = fc[signif_local]
+            ax.scatter(b2, a2, s=sz**2, c='r',
+                       alpha=1)
+        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
+                linewidth='0.75',
+                zorder=0, alpha=0.5)
+        ax.text(0.99, 0.980,
+                'Present in %d Cancers\n %5.1f%% (%d/%d) significant'
+                % (i + 1, n_signif / n_valid * 100, n_signif // (i + 1),
+                   n_valid // n_datasets),
+                transform=ax.transAxes,
+                family='Lao Sangam MN',
+                fontsize=8,
+                va='top',
+                ha='right',
+                bbox=(dict(boxstyle='square',
+                           facecolor='white',
+                           ec='k',
+                           alpha=1,
+                           lw=0.75)))
+        ax.set_ylabel('Log10 q-value')
+        ax.set_xlabel('Log2 Fold Change')
+        # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
+        ax.set_ylim(-0.1, 75)
+        ax.set_xlim(-15, 15)
+
+    plt.tight_layout()
+    fig_path = os.path.join('figures', 'volcano_by_number.png')
+    plt.savefig(fig_path, dpi=300)
+    plt.show()
+
+    valid, numsignif, mean, fc = store
+
+    d = {}
+    for i, ds in enumerate(datasets):
+        selec = np.arange(TanricDataset.n_genes, dtype=int) + \
+                TanricDataset.n_genes * i
+        fc_signif = fc[selec]
+        _, _, is_signif = ds.results['t_test']
+        sig = np.logical_and(is_signif, valid[selec])
+        fc_signif = fc_signif[sig]
+        name = ds.cancer_type
+        name = '\n'.join(textwrap.wrap(name, 15))
+        d[name] = pd.Series(fc_signif)
+
+    df = pd.DataFrame(d)
+    means = df.mean()
+    df = df[df.columns[means.argsort()]]
+    fignum += 1
+    fig = plt.figure(fignum, (16, 8))
+    ax = plt.subplot(111)
+    sns.violinplot(data=df, ax=ax, orient='v', showfliers=False, bw=0.15,
+                   linewidth=1, inner=None, cut=0, width=1)
+    sns.swarmplot(data=df, ax=ax, color='k', size=1.5, orient='v', alpha=0.2)
+    a = np.array(ax.get_xlim())
+    b = np.array([0, 0])
+    plt.plot(a, b, 'k', lw=0.75, alpha=0.5, zorder=0)
+    plt.ylim(-13, 13)
+    plt.ylabel('Log Fold Change')
+    plt.tight_layout()
+    fig_path = os.path.join('figures', 'cancer_diff_exp_distribution.png')
+    plt.savefig(fig_path, dpi=300)
+    plt.show()
+
+

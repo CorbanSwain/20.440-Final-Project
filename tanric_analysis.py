@@ -4,6 +4,7 @@
 
 
 from utils import *
+import statsmodels.stats.multitest as multi
 import datetime
 import scipy.io as sio
 from scipy.stats import ttest_ind
@@ -86,6 +87,8 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
         else:
             raise ValueError('Unexpected test specification -> \'%s\'.' % test)
 
+        q = np.zeros(TanricDataset.n_genes)
+        _, q[is_valid], _, _ = multi.multipletests(p[is_valid], method='fdr_bh')
         is_signif = np.zeros((ds.n_genes,), dtype=bool)
         is_signif_valid = find_signif(p[is_valid], **kwargs)
         is_signif[is_valid] = is_signif_valid
@@ -95,6 +98,7 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
                      % (ds.cancer_type, np.count_nonzero(is_signif)))
         stdout.flush()
         ds.results['t_test'] = (t, p, is_signif)
+        ds.results['q_values'] = q
     stdout.write('\r\tDone.\n')
 
     signif_path = os.path.join('data', 'matlab_io', 'signif_matrix.m')
@@ -422,14 +426,14 @@ def make_multi_analysis(datasets, settings):
 
 if __name__ == "__main__":
     settings = {
-        'min_norm_samples': 5,
+        'min_norm_samples': 20,
         'test': 'mwu',  # mwu, t_test
         'version': '6.2',  # TODO - some type of automatic versioning
         'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
-        'multi_hyp_procedure': MultiHypProc.BONFERONI,
-        'alpha_crit': 5e-3,
+        'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
+        'alpha_crit': 1e-8,
         'metric': None,
         'samples': None,
         'fold_change_fudge': 1e-4,
@@ -458,14 +462,17 @@ if __name__ == "__main__":
                    settings['multi_hyp_procedure'],
                    **add_args)
 
-    make_multi_analysis(datasets, settings)
+    # make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
 
     # make_simple_charts(datasets)
 
-    make_ma_plots(datasets,
-                 settings['fold_change_fudge'])
+    # make_ma_plots(datasets,
+    #               settings['fold_change_fudge'])
+
+    make_ma_plots_2(datasets,
+                    settings['fold_change_fudge'])
 
 
 
