@@ -7,8 +7,9 @@ from utils import *
 import statsmodels.stats.multitest as multi
 import datetime
 import scipy.io as sio
-from scipy.stats import ttest_ind
+from scipy.stats import ttest_ind, wilcoxon
 from paper_figures import *
+import random
 
 
 def import_all_data(min_normal_samples):
@@ -56,9 +57,10 @@ def assess_validity(datasets, expr_cutoff):
         ds.results['is_expressed'] = np.logical_or(
             np.mean(ds.normal_samples, 1) > expr_cutoff,
             np.mean(ds.tumor_samples, 1) > expr_cutoff)
+        # ds.results['is_expressed'] = np.mean(ds.exprdata, 1) > expr_cutoff
 
 
-def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
+def perform_t_test(datasets, test, t_filter, procedure, fcf, **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -84,14 +86,33 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
             t[is_valid], p[is_valid] = ttest_ind(tumor_valid,
                                                  norm_valid,
                                                  axis=1)
+        elif test is 'wsr':
+            idxs = list(np.where(is_valid)[0])
+            paired_mean_fc = np.zeros(TanricDataset.n_genes)
+            for j, idx1 in enumerate(idxs):
+                nprs, tprs = ds.sample_pairs
+                tprs = tprs - ds.n_normal_samples
+                a = tumor_valid[j, tprs]
+                b = norm_valid[j, nprs]
+                t[idx1], p[idx1] = wilcoxon(a, b)
+                paired_mean_fc[idx1] = np.mean((a + fcf) / (b + fcf))
+
         else:
             raise ValueError('Unexpected test specification -> \'%s\'.' % test)
+
 
         q = np.zeros(TanricDataset.n_genes)
         _, q[is_valid], _, _ = multi.multipletests(p[is_valid], method='fdr_bh')
         is_signif = np.zeros((ds.n_genes,), dtype=bool)
         is_signif_valid = find_signif(p[is_valid], **kwargs)
-        is_signif[is_valid] = is_signif_valid
+        try:
+            is_signif[is_valid] = is_signif_valid
+            if test is 'wsr':
+                is_signif[is_valid] = np.logical_and(
+                    is_signif[is_valid],
+                    np.abs(np.log2(paired_mean_fc[is_valid])) > 1)
+        except ValueError:
+            pass
         signif_mat[:, i] = is_signif
         n_counts[is_signif] += 1
         stdout.write('\r\t%s: # implicated = %d'
@@ -101,7 +122,7 @@ def perform_t_test(datasets, test, t_filter, procedure, **kwargs):
         ds.results['q_values'] = q
     stdout.write('\r\tDone.\n')
 
-    signif_path = os.path.join('data', 'matlab_io', 'signif_matrix.m')
+    signif_path = os.path.join('data', 'matlab_io', 'signif_matrix')
     sio.savemat(signif_path, {'isSignif': signif_mat,
                               'geneNames': matlab_cell_arr(
                                   TanricDataset.gene_info['code'])})
@@ -282,6 +303,59 @@ def make_composite_dataset(datasets, filter_method, metric,
             num_annotations_v2,
             n_genes)
 
+def scramble(datasets):
+    pair_norm = []
+    pair_tumor = []
+    unpair_norm = []
+    unpair_tumor = []
+    selects = []
+    print('Scrambling Data ... \n\n')
+    for ds in datasets:
+        # print('\n%s:' % ds.cancer_type)
+        ns, ts = ds.sample_pairs
+        pair_norm.append(ds.exprdata[:, ns])
+        pair_tumor.append(ds.exprdata[:, ts])
+
+        nall = np.where(ds.normal_sel)[0]
+        nu = [x for x in nall if x not in ns]
+        # print('\tNormal Diff: %d ?= %d' % (len(nall) - len(ns), len(nu)))
+        if nu:
+            unpair_norm.append(ds.exprdata[:, nu])
+
+        tall = np.where(ds.tumor_sel)[0]
+        tu = [x for x in tall if x not in ts]
+        # print('\tTumor Diff:  %d ?= %d' % (len(tall) - len(ts), len(tu)))
+        if tu:
+            unpair_tumor.append(ds.exprdata[:, tu])
+
+        selects.append(list(x) for x in (ns, ts, nu, tu))
+        ds.results['selects'] = selects[-1]
+
+    n_datasets = len(datasets)
+    for ds, sels in zip(datasets, selects):
+        ns, ts, nu, tu = sels
+
+        for idx_n, idx_t in zip(ns, ts):
+            ds_idx = np.random.randint(n_datasets)
+            pair_idx = np.random.randint(pair_norm[ds_idx].shape[1])
+            ds.exprdata[:, idx_n] = pair_norm[ds_idx][:, pair_idx]
+            ds.exprdata[:, idx_t] = pair_tumor[ds_idx][:, pair_idx]
+
+        for idx in nu:
+            ds_idx = np.random.randint(len(unpair_norm))
+            sel_idx = np.random.randint(unpair_norm[ds_idx].shape[1])
+            ds.exprdata[:, idx] = unpair_norm[ds_idx][:, sel_idx]
+
+        for idx in tu:
+            ds_idx = np.random.randint(len(unpair_tumor))
+            sel_idx = np.random.randint(pair_norm[ds_idx].shape[1])
+            ds.exprdata[:, idx] = unpair_tumor[ds_idx][:, sel_idx]
+
+
+
+
+
+
 
 def save_for_matlab(datasets, comp_ds, settings):
     print('\nSaving results for MATLAB ...')
@@ -427,20 +501,22 @@ def make_multi_analysis(datasets, settings):
 if __name__ == "__main__":
     settings = {
         'min_norm_samples': 20,
-        'test': 'mwu',  # mwu, t_test
-        'version': '6.2',  # TODO - some type of automatic versioning
+        'test': 'wsr',  # mwu, t_test, wsr
+        'version': '7.1',  # TODO - some type of automatic versioning
         'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
-        'alpha_crit': 1e-8,
+        'alpha_crit': 1e-3,
         'metric': None,
         'samples': None,
-        'fold_change_fudge': 1e-4,
-        'do_save': False,
+        'fold_change_fudge': 1e-5,
+        'do_save': True,
+        'do_scramble': True,
         'do_plot': False,
         'analysis_date': str(datetime.datetime.now())
     }
+
 
     if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
         add_args = {'q': settings['alpha_crit'],
@@ -449,6 +525,9 @@ if __name__ == "__main__":
         add_args = {'a': settings['alpha_crit']}
 
     datasets = import_all_data(settings['min_norm_samples'])
+
+    if settings['do_scramble']:
+        scramble(datasets)
 
     TanricDataset.get_transcript_info()
 
@@ -460,19 +539,21 @@ if __name__ == "__main__":
                    settings['test'],
                    settings['t_filter'],
                    settings['multi_hyp_procedure'],
+                   settings['fold_change_fudge'],
                    **add_args)
 
-    # make_multi_analysis(datasets, settings)
+    make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
 
-    # make_simple_charts(datasets)
+    #make_simple_charts(datasets)
 
-    # make_ma_plots(datasets,
-    #               settings['fold_change_fudge'])
+    make_ma_plots(datasets,
+                  settings['fold_change_fudge'])
 
-    make_ma_plots_2(datasets,
-                    settings['fold_change_fudge'])
+    make_volcano_plots(datasets,
+                       settings['test'],
+                       settings['fold_change_fudge'])
 
 
 

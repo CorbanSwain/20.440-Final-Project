@@ -49,7 +49,7 @@ def make_simple_charts(datasets):
     df = pd.DataFrame(panda_dict)
     df = df.sort_values('significant', ascending=False)
 
-    sns.set(style='whitegrid')
+    # sns.set(style='whitegrid')
     fig = plt.figure(1, (9, 4))
     ax = plt.subplot(111)
     sns.set_color_codes('muted')
@@ -58,6 +58,7 @@ def make_simple_charts(datasets):
     sns.set_color_codes('dark')
     sns.barplot(y='significant', x='cancer',
                 data=df, label='Number Significant', color='b')
+    sns.set_color_codes()
     ax.legend(ncol=2, loc='upper center', bbox_to_anchor=(0.5, -0.1))
     plt.tight_layout()
     ax.set(ylabel='Number of lncRNAs', xlabel='')
@@ -82,10 +83,10 @@ def make_simple_charts(datasets):
     # FIXME - scale to correct size for each subset
     fig, axs = plt.subplots(1, 2)
     set_names = [set_1_names, set_2_names]
-    for i, group in enumerate([set_1_idxs, set_2_idxs]):
-        venn_sets = [set(np.where(s[:, j])[0]) for j in group]
-        venn3(venn_sets, set_names[i], ax=axs[i])
-    plt.show()
+    # for i, group in enumerate([set_1_idxs, set_2_idxs]):
+        # venn_sets = [set(np.where(s[:, j])[0]) for j in group]
+        # venn3(venn_sets, set_names[i], ax=axs[i])
+    # plt.show()
 
     set_names = [
         tuple(),
@@ -102,20 +103,20 @@ def make_simple_charts(datasets):
     for i, ds in enumerate(datasets):
         ct = ds.cancer_type
         cancer_list.append(ct)
-        for j, names in enumerate(set_names):
-            if ct in names:
-                set_idxs[j].append(i)
+        # for j, names in enumerate(set_names):
+        #      if ct in names:
+        #         set_idxs[j].append(i)
 
     # FIXME - scale to correct size for each subset
-    fig, axs = plt.subplots(3, 3)
-    for i, group in enumerate(set_idxs):
-        if set_names[i]:
-            venn_sets = [set(np.where(s[:, j])[0]) for j in group]
-            if len(set_names[i]) == 3:
-                venn3(venn_sets, set_names[i], ax=axs[i // 3][i % 3])
-            if len(set_names[i]) == 2:
-                venn2(venn_sets, set_names[i], ax=axs[i // 3][i % 3])
-    plt.show()
+    # fig, axs = plt.subplots(3, 3)
+    # for i, group in enumerate(set_idxs):
+    #     if set_names[i]:
+    #         venn_sets = [set(np.where(s[:, j])[0]) for j in group]
+    #         if len(set_names[i]) == 3:
+    #             venn3(venn_sets, set_names[i], ax=axs[i // 3][i % 3])
+    #         if len(set_names[i]) == 2:
+    #             venn2(venn_sets, set_names[i], ax=axs[i // 3][i % 3])
+    # plt.show()
 
     num_signif = np.sum(s, 1)
     max_signif_idxs = np.where(num_signif >= 9)[0]
@@ -132,15 +133,15 @@ def make_simple_charts(datasets):
                  np.count_nonzero(s[idx, :]),
                  check_str))
 
-    name_dict = {}
-    for i, n in enumerate(cancer_list):
-        name_dict[i] = n
+    # name_dict = {}
+    # for i, n in enumerate(cancer_list):
+    #    name_dict[i] = n
 
-    df2 = pd.DataFrame(panda_dict)
-    df2 = df2.rename(name_dict, axis='index')
+    # df2 = pd.DataFrame(panda_dict)
+    # df2 = df2.rename(name_dict, axis='index')
 
-    sns.clustermap(df2)
-    plt.show()
+    #sns.clustermap(df2)
+    # plt.show()
     # Pie CHart of Overlay
     x = []
     nums = np.sort(np.unique(num_signif))
@@ -245,7 +246,7 @@ def make_ma_plots(datasets, fcf):
                 family='Lao Sangam MN',
                 fontsize=10,
                 va='top',
-                ha='right',
+                ha='center',
                 bbox=(dict(boxstyle='square',
                            facecolor='white',
                            ec='k',
@@ -359,12 +360,13 @@ def make_ma_plots(datasets, fcf):
     plt.show()
 
 
-def make_ma_plots_2(datasets, fcf):
+def make_volcano_plots(datasets, test, fcf):
     fignum = 10
     n_datasets = len(datasets)
     n_points = n_datasets * TanricDataset.n_genes
     fc = np.zeros(n_points)
     qls = np.zeros(n_points)
+    pls = np.zeros(n_points)
     mean = np.zeros(n_points)
     numsignif = np.zeros(TanricDataset.n_genes)
     signif = np.zeros(n_points)
@@ -376,29 +378,47 @@ def make_ma_plots_2(datasets, fcf):
     grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(2, 5),
                            axes_pad=0.25, label_mode='L',)
     for i, ds in enumerate(datasets):
-        _, _, is_signif = ds.results['t_test']
+        _, p, is_signif = ds.results['t_test']
         q = ds.results['q_values']
         is_valid = ds.results['is_expressed']
-        norm_mean = np.mean(ds.normal_samples, 1) + fcf
-        tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
+
 
         selec = np.arange(TanricDataset.n_genes, dtype=int) + \
             TanricDataset.n_genes * i
-        fc[selec] = np.log2(tumor_mean / norm_mean)
-        qls[selec] = -np.log10(q)
+
+
+        if test is 'wsr':
+            nidx, tidx = ds.sample_pairs
+            nsps = ds.exprdata[:, nidx]
+            tsps = ds.exprdata[:, tidx]
+            tumor_mean = np.mean(tsps, 1)
+            fc_temp = (tsps + fcf) / (nsps + fcf)
+            fc[selec] = np.log2(np.mean(fc_temp, 1))
+        else:
+            # FIXME, - this is an improper calculation
+            tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
+            norm_mean = np.mean(ds.normal_samples, 1) + fcf
+            fc[selec] = np.log2(tumor_mean / norm_mean)
+
+
+        q[is_valid] = -np.log10(q[is_valid])
+        qls[selec] = q
+        p[is_valid] = -np.log10(p[is_valid])
+        pls[selec] = p
         valid[selec] = is_valid
         mean[selec] = tumor_mean
         signif[selec] = is_signif
         signif2[:, i] = is_signif
         numsignif += is_signif.astype(int)
 
-        sz = 4
+        sz = 3.5
         ax = grid[i]
         y = qls[selec]
+        # y = pls[selec]
         x = fc[selec]
         ns = np.logical_and(np.logical_not(is_signif), is_valid)
-        ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.5)
-        ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=0.8)
+        ax.scatter(x[ns], y[ns], s=sz**2, c='k', alpha=0.8)
+        ax.scatter(x[is_signif], y[is_signif], s=sz**2, c='r', alpha=1)
         ax.text(0.99, 0.980,
                 '%s\n%.1f%% (%d/%d) significant'
                 % (TanricDataset.sampleid2name(ds.cancer_type),
@@ -415,16 +435,16 @@ def make_ma_plots_2(datasets, fcf):
                            ec='k',
                            alpha=1,
                            lw=0.75)))
-        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
+        ax.plot(np.array([0, 0]), np.array([0, 20]), 'k',
                 linewidth='0.75',
                 zorder=0, alpha=0.5)
         ax.set_ylabel('-Log10 q-Value')
         ax.set_xlabel('Log2 Fold Change')
-        ax.set_ylim(-0.1, 75)
+        ax.set_ylim(-0.1, 18)
         ax.set_xlim(-15, 15)
 
     plt.tight_layout()
-    fig_path = os.path.join('figures', 'volcano_by_cancer.png')
+    fig_path = os.path.join('figures', 'volcano_by_cancer_scramble.png')
     plt.savefig(fig_path, dpi=300)
     plt.show()
 
@@ -437,6 +457,7 @@ def make_ma_plots_2(datasets, fcf):
     numsignif = numsignif[valid]
     fc = fc[valid]
     qls = qls[valid]
+    pls = pls[valid]
     mean = mean[valid]
     gene_nums = gene_nums[valid]
 
@@ -454,9 +475,10 @@ def make_ma_plots_2(datasets, fcf):
         ax = grid[i]
         # FIXME - var names should be better
         aa = qls[notsignif]
+        # aa = pls[notsignif]
         bb = fc[notsignif]
-        ax.scatter(bb, aa, s=sz**2, c='k', alpha=0.3)
-        if 0 < n_signif_genes < 16:
+        ax.scatter(bb, aa, s=sz**2, c='k', alpha=0.8)
+        if 0 < n_signif_genes < 10:
             gn = gene_nums[signif_local]
             for j, idx in enumerate(np.unique(gn)):
                 selec = np.where(np.logical_and(gene_nums == idx,
@@ -464,16 +486,18 @@ def make_ma_plots_2(datasets, fcf):
                 n = bytes.decode(TanricDataset.gene_info['code'][idx],
                                  'utf-8')
                 a2 = qls[selec]
+                # a2 = pls[selec]
                 b2 = fc[selec]
                 ax.scatter(b2, a2, s=sz**2, alpha=1, label=n)
             ax.legend(facecolor='white', framealpha=0.8, loc='lower right',
-                      ncol=3)
+                      ncol=1)
         else:
             a2 = qls[signif_local]
+            # a2 = pls[signif_local]
             b2 = fc[signif_local]
             ax.scatter(b2, a2, s=sz**2, c='r',
                        alpha=1)
-        ax.plot(np.array([-1000, 1000]), np.array([0, 0]), 'k',
+        ax.plot(np.array([0, 0]), np.array([0, 20]), 'k',
                 linewidth='0.75',
                 zorder=0, alpha=0.5)
         ax.text(0.99, 0.980,
@@ -493,11 +517,11 @@ def make_ma_plots_2(datasets, fcf):
         ax.set_ylabel('Log10 q-value')
         ax.set_xlabel('Log2 Fold Change')
         # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
-        ax.set_ylim(-0.1, 75)
+        ax.set_ylim(-0.1, 18)
         ax.set_xlim(-15, 15)
 
     plt.tight_layout()
-    fig_path = os.path.join('figures', 'volcano_by_number.png')
+    fig_path = os.path.join('figures', 'volcano_by_number_scramble.png')
     plt.savefig(fig_path, dpi=300)
     plt.show()
 
@@ -527,10 +551,11 @@ def make_ma_plots_2(datasets, fcf):
     a = np.array(ax.get_xlim())
     b = np.array([0, 0])
     plt.plot(a, b, 'k', lw=0.75, alpha=0.5, zorder=0)
-    plt.ylim(-13, 13)
+    # plt.ylim(-13, 13)
     plt.ylabel('Log Fold Change')
     plt.tight_layout()
-    fig_path = os.path.join('figures', 'cancer_diff_exp_distribution.png')
+    fig_path = os.path.join('figures',
+                            'cancer_diff_exp_distribution_scramble.png')
     plt.savefig(fig_path, dpi=300)
     plt.show()
 
