@@ -157,6 +157,10 @@ class Samples(StrEnum):
     NORMAL = 'normal'
     ALL = 'all'
 
+class Results(StrEnum):
+    SIGNIF_TEST = 'significance_test'
+    VALIDITY = 'validity'
+
 
 ec = NCBI_Client()
 
@@ -304,6 +308,39 @@ class TanricDataset:
                                  np.array(tumor_pair_idx, dtype=int))
         else:
             self.n_pairs = 0
+
+    @property
+    def normal_mean(self):
+        return np.mean(self.normal_samples, 1)
+
+    @property
+    def tumor_mean(self):
+        return np.mean(self.tumor_samples, 1)
+
+    @property
+    def normal_pair_samples(self):
+        idxs, _ = self.sample_pairs
+        return self.exprdata[:, idxs]
+
+    @property
+    def tumor_pair_samples(self):
+        _, idxs = self.sample_pairs
+        return self.exprdata[:, idxs]
+
+    def paired_fc(self, fcf):
+        return ((self.tumor_pair_samples + fcf) /
+                (self.normal_pair_samples + fcf))
+
+    def paired_fc_mean(self, fcf):
+        return np.mean(self.paired_fc(fcf), 1)
+
+    def fc(self, fcf):
+        return ((self.tumor_samples.T + fcf) /
+                self.normal_mean).T
+
+    def fc_mean(self, fcf):
+        return ((self.tumor_mean + fcf) /
+                (self.normal_mean + fcf))
 
     @property
     def normal_names(self):

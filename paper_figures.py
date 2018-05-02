@@ -378,7 +378,7 @@ def make_volcano_plots(datasets, test, fcf):
     grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(2, 5),
                            axes_pad=0.25, label_mode='L',)
     for i, ds in enumerate(datasets):
-        _, p, is_signif = ds.results['t_test']
+        t_stat, p, is_signif = ds.results['t_test']
         q = ds.results['q_values']
         is_valid = ds.results['is_expressed']
 
@@ -393,7 +393,10 @@ def make_volcano_plots(datasets, test, fcf):
             tsps = ds.exprdata[:, tidx]
             tumor_mean = np.mean(tsps, 1)
             fc_temp = (tsps + fcf) / (nsps + fcf)
-            fc[selec] = np.log2(np.mean(fc_temp, 1))
+            # fc[selec] = np.log2(np.mean(fc_temp, 1))
+            fc[selec] = np.log2((np.mean(tsps, 1) + fcf) /
+                                (np.mean(nsps, 1) + fcf))
+            # fc[selec] = t_stat * np.sign(np.mean(tsps, 1) - np.mean(nsps, 1))
         else:
             # FIXME, - this is an improper calculation
             tumor_mean = np.mean(ds.tumor_samples, 1) + fcf
@@ -441,7 +444,7 @@ def make_volcano_plots(datasets, test, fcf):
         ax.set_ylabel('-Log10 q-Value')
         ax.set_xlabel('Log2 Fold Change')
         ax.set_ylim(-0.1, 18)
-        ax.set_xlim(-15, 15)
+        #ax.set_xlim(-15, 15)
 
     plt.tight_layout()
     fig_path = os.path.join('figures', 'volcano_by_cancer_scramble.png')
@@ -518,7 +521,7 @@ def make_volcano_plots(datasets, test, fcf):
         ax.set_xlabel('Log2 Fold Change')
         # ax.set_xlim(-0.1, max(fc[numsignif > 0]) + 0.5)
         ax.set_ylim(-0.1, 18)
-        ax.set_xlim(-15, 15)
+        #ax.set_xlim(-15, 15)
 
     plt.tight_layout()
     fig_path = os.path.join('figures', 'volcano_by_number_scramble.png')

@@ -57,10 +57,16 @@ def assess_validity(datasets, expr_cutoff):
         ds.results['is_expressed'] = np.logical_or(
             np.mean(ds.normal_samples, 1) > expr_cutoff,
             np.mean(ds.tumor_samples, 1) > expr_cutoff)
-        # ds.results['is_expressed'] = np.mean(ds.exprdata, 1) > expr_cutoff
+
+        # ds.results['is_expressed'] = np.zeros(TanricDataset.n_genes)
+        # x = np.logical_or(ds.tumor_pair_samples > expr_cutoff,
+        #                   ds.normal_pair_samples > expr_cutoff)
+        # ct_x = np.count_nonzero(x, 1)
+        # ds.results['is_expressed'] = ct_x > (ds.n_pairs * 0.5)
 
 
-def perform_t_test(datasets, test, t_filter, procedure, fcf, **kwargs):
+def perform_t_test(datasets, test, t_filter, procedure, fc_cutoff, fcf,
+**kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -77,25 +83,29 @@ def perform_t_test(datasets, test, t_filter, procedure, fcf, **kwargs):
         t = np.zeros((ds.n_genes,))
         p = np.zeros((ds.n_genes,))
 
+        mean_fc = np.zeros(TanricDataset.n_genes)
         if test is 'mwu':
             idxs = list(np.where(is_valid)[0])
             for j in range(np.count_nonzero(is_valid)):
                 t[idxs[j]], p[idxs[j]] = mwu((tumor_valid[j, :],
                                               norm_valid[j, :]))
+            mean_fc[is_valid] = (np.mean(tumor_valid, 1) + fcf) / \
+                                (np.mean(norm_valid, 1) + fcf)
         elif test is 't_test':
             t[is_valid], p[is_valid] = ttest_ind(tumor_valid,
                                                  norm_valid,
                                                  axis=1)
+            mean_fc[is_valid] = (np.mean(tumor_valid, 1) + fcf) / \
+                                (np.mean(norm_valid, 1) + fcf)
         elif test is 'wsr':
             idxs = list(np.where(is_valid)[0])
-            paired_mean_fc = np.zeros(TanricDataset.n_genes)
             for j, idx1 in enumerate(idxs):
                 nprs, tprs = ds.sample_pairs
                 tprs = tprs - ds.n_normal_samples
                 a = tumor_valid[j, tprs]
                 b = norm_valid[j, nprs]
-                t[idx1], p[idx1] = wilcoxon(a, b)
-                paired_mean_fc[idx1] = np.mean((a + fcf) / (b + fcf))
+                t[idx1], p[idx1] = wilcoxon(a, b, zero_method='pratt')
+                mean_fc[idx1] = (np.mean(a) + fcf) / (np.mean(b) + fcf)
 
         else:
             raise ValueError('Unexpected test specification -> \'%s\'.' % test)
@@ -107,10 +117,10 @@ def perform_t_test(datasets, test, t_filter, procedure, fcf, **kwargs):
         is_signif_valid = find_signif(p[is_valid], **kwargs)
         try:
             is_signif[is_valid] = is_signif_valid
-            if test is 'wsr':
-                is_signif[is_valid] = np.logical_and(
-                    is_signif[is_valid],
-                    np.abs(np.log2(paired_mean_fc[is_valid])) > 1)
+            is_signif[is_valid] = np.logical_and(
+                is_signif[is_valid],
+                np.abs(np.log2(mean_fc[is_valid])) > fc_cutoff)
+
         except ValueError:
             pass
         signif_mat[:, i] = is_signif
@@ -503,16 +513,17 @@ if __name__ == "__main__":
         'min_norm_samples': 20,
         'test': 'wsr',  # mwu, t_test, wsr
         'version': '7.1',  # TODO - some type of automatic versioning
-        'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
+        'expression_cutoff': 0.2,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
         'alpha_crit': 1e-3,
         'metric': None,
         'samples': None,
-        'fold_change_fudge': 1e-5,
+        'fc_cutoff': 0.5,
+        'fold_change_fudge': 1e-4,
         'do_save': True,
-        'do_scramble': True,
+        'do_scramble': False,
         'do_plot': False,
         'analysis_date': str(datetime.datetime.now())
     }
@@ -539,17 +550,18 @@ if __name__ == "__main__":
                    settings['test'],
                    settings['t_filter'],
                    settings['multi_hyp_procedure'],
+                   settings['fc_cutoff'],
                    settings['fold_change_fudge'],
                    **add_args)
 
-    make_multi_analysis(datasets, settings)
+    #make_multi_analysis(datasets, settings)
 
     plt.style.use('seaborn-notebook')
 
     #make_simple_charts(datasets)
 
-    make_ma_plots(datasets,
-                  settings['fold_change_fudge'])
+    # make_ma_plots(datasets,
+    #               settings['fold_change_fudge'])
 
     make_volcano_plots(datasets,
                        settings['test'],
