@@ -3,6 +3,7 @@
 # Corban Swain, 2018
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import rankdata, mannwhitneyu
 import eutils.exceptions
@@ -229,6 +230,7 @@ spinner = Spinner()
 
 class TanricDataset:
     # FIXME - there should be a gene class to handle all of this
+    fcf = None
     gene_ids = None
     n_genes = None
     gene_info = None
@@ -261,6 +263,20 @@ class TanricDataset:
 
         if expr_structarr is not None:
             self.parse_exprdata(expr_structarr)
+
+        self._normal_mean = None
+        self._tumor_mean = None
+        self._normal_pair_samples = None
+        self._tumor_pair_samples = None
+        self._paired_fc = None
+        self._paired_fc_mean = None
+        self._paired_fc_median = None
+        self._fc = None
+        self._fc_mean = None
+        self._normal_names = None
+        self._tumor_names = None
+        self._normal_samples = None
+        self._tumor_samples = None
 
     def parse_exprdata(self, expr_structarr):
         self.gene_ids = [s.strip('\"') for s in expr_structarr['Gene_ID']]
@@ -311,54 +327,94 @@ class TanricDataset:
 
     @property
     def normal_mean(self):
-        return np.mean(self.normal_samples, 1)
+        if self._normal_mean is None:
+            self._normal_mean = np.mean(self.normal_samples, 1)
+        return self._normal_mean
 
     @property
     def tumor_mean(self):
-        return np.mean(self.tumor_samples, 1)
+        if self._tumor_mean is None:
+            self._tumor_mean = np.mean(self.tumor_samples, 1)
+        return self._tumor_mean
 
     @property
     def normal_pair_samples(self):
-        idxs, _ = self.sample_pairs
-        return self.exprdata[:, idxs]
+        if self._normal_pair_samples is None:
+            idxs, _ = self.sample_pairs
+            self._normal_pair_samples = self.exprdata[:, idxs]
+        return self._normal_pair_samples
 
     @property
     def tumor_pair_samples(self):
-        _, idxs = self.sample_pairs
-        return self.exprdata[:, idxs]
+        if self._tumor_pair_samples is None:
+            _, idxs = self.sample_pairs
+            self._tumor_pair_samples = self.exprdata[:, idxs]
+        return self._tumor_pair_samples
 
-    def paired_fc(self, fcf):
-        return ((self.tumor_pair_samples + fcf) /
-                (self.normal_pair_samples + fcf))
+    @property
+    def paired_fc(self):
+        if self._paired_fc is None:
+            self._paired_fc = ((self.tumor_pair_samples + self.fcf) /
+                               (self.normal_pair_samples + self.fcf))
+            self._paired_fc = np.log2(self._paired_fc)
+        return self._paired_fc
 
-    def paired_fc_mean(self, fcf):
-        return np.mean(self.paired_fc(fcf), 1)
+    @property
+    def paired_fc_mean(self):
+        if self._paired_fc_mean is None:
+            self._paired_fc_mean = np.mean(self.paired_fc, 1)
+        return self._paired_fc_mean
 
-    def fc(self, fcf):
-        return ((self.tumor_samples.T + fcf) /
-                self.normal_mean).T
 
-    def fc_mean(self, fcf):
-        return ((self.tumor_mean + fcf) /
-                (self.normal_mean + fcf))
+    @property
+    def paired_fc_median(self):
+        if self._paired_fc_median is None:
+            self._paired_fc_median = np.median(self.paired_fc, 1)
+        return self._paired_fc_median
+
+    @property
+    def fc(self):
+        if self._fc is None:
+            self._fc = ((self.tumor_samples.T + self.fcf) /
+                        self.normal_mean + self.fcf).T
+            self._fc = np.log2(self._fc)
+        return self._fc
+
+    @property
+    def fc_mean(self):
+        if self._fc_mean is None:
+            self._fc_mean = ((self.tumor_mean + self.fcf) /
+                             (self.normal_mean + self.fcf))
+            self._fc_mean = np.log2(self._fc_mean)
+        return self._fc_mean
 
     @property
     def normal_names(self):
-        return [self.sample_names[i] for i in range(self.n_samples)
-                if self.normal_sel[i]]
+        if self._normal_names is None:
+            self._normal_names = [self.sample_names[i]
+                                  for i in range(self.n_samples)
+                                  if self.normal_sel[i]]
+        return self._normal_names
 
     @property
     def tumor_names(self):
-        return [self.sample_names[i] for i in range(self.n_samples)
-                if self.tumor_sel[i]]
+        if self._tumor_names is None:
+            self._tumor_names = [self.sample_names[i]
+                                 for i in range(self.n_samples)
+                                 if self.tumor_sel[i]]
+        return self._tumor_names
 
     @property
     def normal_samples(self):
-        return self.exprdata[:, self.normal_sel]
+        if self._normal_samples is None:
+            self._normal_samples = self.exprdata[:, self.normal_sel]
+        return self._normal_samples
 
     @property
     def tumor_samples(self):
-        return self.exprdata[:, self.tumor_sel]
+        if self._tumor_samples is None:
+            self._tumor_samples = self.exprdata[:, self.tumor_sel]
+        return self._tumor_samples
 
     @classmethod
     def get_gene_info(cls):
@@ -425,9 +481,6 @@ class TanricDataset:
         return cls.cancer_dict[cid]
 
 
-
-
-
 lncpedia_url = 'https://lncipedia.org/api/search'
 
 
@@ -437,7 +490,6 @@ def query_lncpedia(gid):
 
 
 class Transcript:
-
     def __init__(self, ref_genome, transcript_dict):
         self.ref_genome = ref_genome
         self.sequence = transcript_dict['sequence']
@@ -453,6 +505,162 @@ class Transcript:
     def lncpedia_name(self):
         return self.lncpedia_id.split(':')[0]
 
-    #@property
-    #def n_aliases(self):
-    #    return len(self.n_aliases)
+
+class CompositeDataset:
+    def __init__(self, datasets):
+        self.dss = datasets
+
+        self._n_dss = None
+        self._n_samples = None
+        self._dss_names = None
+        self._n_genes = None
+        self._long_panda = None
+        self._gene_names = None
+        self._num_signif = None
+        self._all_expressed = None
+        self._any_expressed = None
+        self._all_nonzero = None
+        self._any_nonzero = None
+
+    @property
+    def n_dss(self):
+        if self._n_dss is None:
+            self._n_dss = len(self.dss)
+        return self._n_dss
+
+    @property
+    def n_samples(self):
+        if self._n_samples is None:
+            self._n_samples = sum(ds.n_pairs for ds in self.dss)
+        return self._n_samples
+
+    @property
+    def dss_names(self):
+        if self._dss_names is None:
+            self._dss_names = [ds.cancer_type for ds in self.dss]
+        return self._dss_names
+
+    @property
+    def n_genes(self):
+        if self._n_genes is None:
+            self._n_genes = TanricDataset.n_genes
+        return self._n_genes
+
+    @property
+    def gene_names(self):
+        if self._gene_names is None:
+            self._gene_names = [bytes.decode(v, 'utf8')
+                                for v in TanricDataset.gene_info['code']]
+        return self._gene_names
+
+    @property
+    def num_signif(self):
+        if self._num_signif is None:
+            self._num_signif = np.sum(np.column_stack(
+                [ds.results['t_test'][2] for ds in self.dss]), 1)
+        return self._num_signif
+
+    @property
+    def all_expressed(self):
+        if self._all_expressed is None:
+            self._all_expressed = np.all(np.column_stack(
+                [ds.results['is_expressed'] for ds in self.dss]), 1)
+        return self._all_expressed
+
+    @property
+    def any_expressed(self):
+        if self._any_expressed is None:
+            self._any_expressed = np.any(np.column_stack(
+                [ds.results['is_expressed'] for ds in self.dss]), 1)
+        return self._any_expressed
+
+    @property
+    def all_nonzero(self):
+        if self._all_nonzero is None:
+            self._all_nonzero = np.all(np.column_stack(
+                [ds.results['is_nonzero'] for ds in self.dss]), 1)
+        return self._all_nonzero
+
+    @property
+    def any_nonzero(self):
+        if self._any_nonzero is None:
+            self._any_nonzero = np.any(np.column_stack(
+                [ds.results['is_nonzero'] for ds in self.dss]), 1)
+        return self._any_nonzero
+
+    @property
+    def long_panda(self):
+        if self._long_panda is None:
+            n_points = self.n_dss * self.n_genes
+            gene_name = sum([self.gene_names for _ in self.dss], [])
+            cancer_type = [t for t in self.dss_names
+                           for _ in range(self.n_genes)]
+            cancer_num_id = np.repeat(range(self.n_dss), self.n_genes)
+            is_nonzero = np.concatenate([ds.results['is_nonzero'] for ds in
+                                         self.dss])
+            is_expressed = np.concatenate([ds.results['is_expressed'] for ds in
+                                          self.dss])
+            t_stat = np.concatenate([ds.results['t_test'][0] for ds in
+                                     self.dss])
+            q_values = np.concatenate([ds.results['q_values'] for ds in
+                                       self.dss])
+            is_signif = np.concatenate([ds.results['t_test'][2] for ds in
+                                       self.dss])
+
+            num_signif = np.zeros(n_points, dtype=int)
+            for ds in self.dss:
+                this_signif = np.tile(ds.results['t_test'][2], self.n_dss)
+                num_signif[np.logical_and(is_signif, this_signif)] += 1
+
+            expression = np.concatenate([ds.tumor_mean for ds in self.dss])
+
+            fc = np.concatenate([ds.paired_fc_median for ds in self.dss])
+
+            df_dict = {
+                'gene_name': gene_name,
+                'cancer_type': cancer_type,
+                'cancer_num_id': cancer_num_id,
+                'is_nonzero': is_nonzero,
+                'is_expressed': is_expressed,
+                't_stat': t_stat,
+                'q_values': q_values,
+                'is_signif': is_signif,
+                'num_signif': num_signif,
+                'expression': expression,
+                'fc': fc
+            }
+            self._long_panda = pd.DataFrame.from_dict(df_dict)
+        return self._long_panda
+
+    def profile_panda(self, filt=None):
+        if filt is None:
+            filt = self.all_expressed
+
+        mi_arrs = [[], []]
+        arr = np.zeros((np.count_nonzero(filt), self.n_samples))
+        col_idx = 0
+        for ds in self.dss:
+            n_samps = ds.paired_fc.shape[1]
+            for iSamp in range(n_samps):
+                mi_arrs[0].append(ds.cancer_type)
+                mi_arrs[1].append(ds.sample_names[iSamp])
+                arr[:, col_idx] = ds.paired_fc[filt, iSamp]
+                col_idx += 1
+
+        index = pd.MultiIndex.from_arrays(mi_arrs, names=['cancer_type',
+                                                          'sample_name'])
+        df = pd.DataFrame(arr,
+                          index=[self.gene_names[i] for i in
+                                 range(self.n_genes) if filt[i]],
+                          columns=index)
+        return df
+
+    def median_profile_panda(self, filt=None):
+        if filt is None:
+            filt = self.all_expressed
+        df = pd.DataFrame([], index=[self.gene_names[i] for i in
+                                     range(self.n_genes) if filt[i]])
+        for ds in self.dss:
+            df[ds.cancer_type] = ds.paired_fc_median[filt]
+        return df
+

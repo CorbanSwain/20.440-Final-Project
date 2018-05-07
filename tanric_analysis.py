@@ -12,14 +12,16 @@ from paper_figures import *
 import random
 
 
-def import_all_data(min_normal_samples):
+def import_all_data(min_normal_samples, names=None):
     print('\nPerforming Data Import ...')
     tanric_dir = os.path.join('data', 'tanric_data')
-    names = []
-    with open(os.path.join(tanric_dir, 'names.txt')) as names_file:
-        for line in names_file.readlines():
-            if not line.find('TCGA') is -1:
-                names.append(line.strip(' \n'))
+    if names is not None:
+        names = ['TCGA-%s' % n for n in names]
+    else:
+        with open(os.path.join(tanric_dir, 'names.txt')) as names_file:
+            for line in names_file.readlines():
+                if not line.find('TCGA') is -1:
+                    names.append(line.strip(' \n'))
 
     datasets = []
     for name in names:  # TODO - this can be parallelized
@@ -58,15 +60,9 @@ def assess_validity(datasets, expr_cutoff):
             np.mean(ds.normal_samples, 1) > expr_cutoff,
             np.mean(ds.tumor_samples, 1) > expr_cutoff)
 
-        # ds.results['is_expressed'] = np.zeros(TanricDataset.n_genes)
-        # x = np.logical_or(ds.tumor_pair_samples > expr_cutoff,
-        #                   ds.normal_pair_samples > expr_cutoff)
-        # ct_x = np.count_nonzero(x, 1)
-        # ds.results['is_expressed'] = ct_x > (ds.n_pairs * 0.5)
 
-
-def perform_t_test(datasets, test, t_filter, procedure, fc_cutoff, fcf,
-**kwargs):
+def perform_signif_test(datasets, test, t_filter, procedure, fc_cutoff,
+                        **kwargs):
     print('\nPerforming t-tests ...')
     # FIXME - May need to do some memory management here
     # FIXME - Validity testing should be done in its own function
@@ -89,14 +85,11 @@ def perform_t_test(datasets, test, t_filter, procedure, fc_cutoff, fcf,
             for j in range(np.count_nonzero(is_valid)):
                 t[idxs[j]], p[idxs[j]] = mwu((tumor_valid[j, :],
                                               norm_valid[j, :]))
-            mean_fc[is_valid] = (np.mean(tumor_valid, 1) + fcf) / \
-                                (np.mean(norm_valid, 1) + fcf)
+            mean_fc[is_valid] = ds.fc_mean[is_valid]
         elif test is 't_test':
-            t[is_valid], p[is_valid] = ttest_ind(tumor_valid,
-                                                 norm_valid,
+            t[is_valid], p[is_valid] = ttest_ind(tumor_valid, norm_valid,
                                                  axis=1)
-            mean_fc[is_valid] = (np.mean(tumor_valid, 1) + fcf) / \
-                                (np.mean(norm_valid, 1) + fcf)
+            mean_fc[is_valid] = ds.fc_mean[is_valid]
         elif test is 'wsr':
             idxs = list(np.where(is_valid)[0])
             for j, idx1 in enumerate(idxs):
@@ -105,11 +98,9 @@ def perform_t_test(datasets, test, t_filter, procedure, fc_cutoff, fcf,
                 a = tumor_valid[j, tprs]
                 b = norm_valid[j, nprs]
                 t[idx1], p[idx1] = wilcoxon(a, b, zero_method='pratt')
-                mean_fc[idx1] = (np.mean(a) + fcf) / (np.mean(b) + fcf)
-
+            mean_fc[is_valid] = ds.paired_fc_median[is_valid]
         else:
             raise ValueError('Unexpected test specification -> \'%s\'.' % test)
-
 
         q = np.zeros(TanricDataset.n_genes)
         _, q[is_valid], _, _ = multi.multipletests(p[is_valid], method='fdr_bh')
@@ -119,8 +110,7 @@ def perform_t_test(datasets, test, t_filter, procedure, fc_cutoff, fcf,
             is_signif[is_valid] = is_signif_valid
             is_signif[is_valid] = np.logical_and(
                 is_signif[is_valid],
-                np.abs(np.log2(mean_fc[is_valid])) > fc_cutoff)
-
+                np.abs(mean_fc[is_valid]) > fc_cutoff)
         except ValueError:
             pass
         signif_mat[:, i] = is_signif
@@ -313,6 +303,7 @@ def make_composite_dataset(datasets, filter_method, metric,
             num_annotations_v2,
             n_genes)
 
+
 def scramble(datasets):
     pair_norm = []
     pair_tumor = []
@@ -360,11 +351,6 @@ def scramble(datasets):
             ds_idx = np.random.randint(len(unpair_tumor))
             sel_idx = np.random.randint(pair_norm[ds_idx].shape[1])
             ds.exprdata[:, idx] = unpair_tumor[ds_idx][:, sel_idx]
-
-
-
-
-
 
 
 def save_for_matlab(datasets, comp_ds, settings):
@@ -512,30 +498,27 @@ if __name__ == "__main__":
     settings = {
         'min_norm_samples': 20,
         'test': 'wsr',  # mwu, t_test, wsr
-        'version': '7.1',  # TODO - some type of automatic versioning
-        'expression_cutoff': 0.2,  # 0.3 used in TANRIC paper
+        'version': 'acramble_7.3',  # TODO - some type of automatic versioning
+        'expression_cutoff': 0.3,  # 0.3 used in TANRIC paper
         'filter_method': None,
         't_filter': 'is_expressed', # is_nonzero, is_expressed
         'multi_hyp_procedure': MultiHypProc.BEN_HOCH,
         'alpha_crit': 1e-3,
         'metric': None,
         'samples': None,
-        'fc_cutoff': 0.5,
+        'fc_cutoff': 1,
         'fold_change_fudge': 1e-4,
-        'do_save': True,
+        'do_save': False,
         'do_scramble': False,
-        'do_plot': False,
+        'do_plot': True,
         'analysis_date': str(datetime.datetime.now())
     }
 
-
-    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
-        add_args = {'q': settings['alpha_crit'],
-                    'plot': False}
-    else:
-        add_args = {'a': settings['alpha_crit']}
-
-    datasets = import_all_data(settings['min_norm_samples'])
+    TanricDataset.fcf = settings['fold_change_fudge']
+    datasets = import_all_data(settings['min_norm_samples'],
+                               ['HNSC', 'STAD', 'BRCA', 'LUAD',
+                                'KICH', 'KIRC', 'KIRP',
+                                'PRAD', 'THCA', 'LIHC'])
 
     if settings['do_scramble']:
         scramble(datasets)
@@ -546,26 +529,50 @@ if __name__ == "__main__":
 
     assess_validity(datasets, settings['expression_cutoff'])
 
-    perform_t_test(datasets,
-                   settings['test'],
-                   settings['t_filter'],
-                   settings['multi_hyp_procedure'],
-                   settings['fc_cutoff'],
-                   settings['fold_change_fudge'],
-                   **add_args)
+    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
+        add_args = {'q': settings['alpha_crit'],
+                    'plot': False}
+    else:
+        add_args = {'a': settings['alpha_crit']}
 
-    #make_multi_analysis(datasets, settings)
+    perform_signif_test(datasets,
+                        settings['test'],
+                        settings['t_filter'],
+                        settings['multi_hyp_procedure'],
+                        settings['fc_cutoff'],
+                        **add_args)
 
-    plt.style.use('seaborn-notebook')
+    cds = CompositeDataset(datasets)
 
-    #make_simple_charts(datasets)
+    # make_multi_analysis(datasets, settings)
 
-    # make_ma_plots(datasets,
-    #               settings['fold_change_fudge'])
+    if settings['do_plot']:
+        if settings['do_scramble']:
+            tail = '_SCRAMBLE'
+        else:
+            tail = ''
 
-    make_volcano_plots(datasets,
-                       settings['test'],
-                       settings['fold_change_fudge'])
+        plt.style.use('seaborn-paper')
 
+        make_cancer_table(cds)
 
+        make_pie_chart(cds, 'pie_by_number')
+
+        make_barchart(datasets, 'num_signif_bar_chart' + tail)
+
+        make_type_volcanos(cds, 'volcano_by_cancer' + tail)
+
+        make_violin(cds, 'violin_by_cancer' + tail)
+
+        make_corr_cluster(cds, cds.all_expressed, 'expressed_clustergram' +
+                          tail)
+        make_corr_cluster(cds, cds.num_signif >= 1, 'de_clustergram' + tail)
+        make_corr_cluster(cds, cds.num_signif >= 3, '3_de_clustergram' + tail)
+
+        make_corr_cluster_2(cds, cds.all_expressed,
+                            'median_expressed_clustergram' + tail)
+        make_corr_cluster_2(cds, cds.num_signif >= 1,
+                            'median_de_clustergram' + tail)
+        make_corr_cluster_2(cds, cds.num_signif >= 3,
+                            'median_3_de_clustergram' + tail)
 
