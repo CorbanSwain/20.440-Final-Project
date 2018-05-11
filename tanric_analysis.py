@@ -9,6 +9,7 @@ import datetime
 import scipy.io as sio
 from scipy.stats import ttest_ind, wilcoxon
 from paper_figures import *
+import matplotlib as mpl
 import random
 
 
@@ -511,40 +512,55 @@ if __name__ == "__main__":
         'do_save': False,
         'do_scramble': False,
         'do_plot': True,
-        'analysis_date': str(datetime.datetime.now())
+        'analysis_date': str(datetime.datetime.now()),
+        'load_cds_cache': False
     }
 
-    TanricDataset.fcf = settings['fold_change_fudge']
-    datasets = import_all_data(settings['min_norm_samples'],
-                               ['HNSC', 'STAD', 'BRCA', 'LUAD',
-                                'KICH', 'KIRC', 'KIRP',
-                                'PRAD', 'THCA', 'LIHC'])
 
-    if settings['do_scramble']:
-        scramble(datasets)
+    def all_analysis():
+        TanricDataset.fcf = settings['fold_change_fudge']
+        datasets = import_all_data(settings['min_norm_samples'],
+                                   ['HNSC', 'STAD', 'BRCA', 'LUAD',
+                                    'KICH', 'KIRC', 'KIRP',
+                                    'PRAD', 'THCA', 'LIHC'])
 
-    TanricDataset.get_transcript_info()
+        if settings['do_scramble']:
+            scramble(datasets)
 
-    TanricDataset.get_gene_info()
+        TanricDataset.get_transcript_info()
 
-    assess_validity(datasets, settings['expression_cutoff'])
+        TanricDataset.get_gene_info()
 
-    if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
-        add_args = {'q': settings['alpha_crit'],
-                    'plot': False}
+        assess_validity(datasets, settings['expression_cutoff'])
+
+        if settings['multi_hyp_procedure'] is MultiHypProc.BEN_HOCH:
+            add_args = {'q': settings['alpha_crit'],
+                        'plot': False}
+        else:
+            add_args = {'a': settings['alpha_crit']}
+
+        perform_signif_test(datasets,
+                            settings['test'],
+                            settings['t_filter'],
+                            settings['multi_hyp_procedure'],
+                            settings['fc_cutoff'],
+                            **add_args)
+
+        cds = CompositeDataset(datasets)
+        # pickle.dump(cds.dss, open(cds_cache_path, 'wb'))
+
+        # make_multi_analysis(datasets, settings)
+        return cds
+
+
+    cds_cache_path = os.path.join('data', 'np_cache', 'composite_ds.p')
+    if settings['load_cds_cache']:
+        try:
+            cds = pickle.load(open(cds_cache_path, 'rb'))
+        except FileNotFoundError:
+            cds = all_analysis()
     else:
-        add_args = {'a': settings['alpha_crit']}
-
-    perform_signif_test(datasets,
-                        settings['test'],
-                        settings['t_filter'],
-                        settings['multi_hyp_procedure'],
-                        settings['fc_cutoff'],
-                        **add_args)
-
-    cds = CompositeDataset(datasets)
-
-    # make_multi_analysis(datasets, settings)
+        cds = all_analysis()
 
     if settings['do_plot']:
         if settings['do_scramble']:
@@ -553,26 +569,33 @@ if __name__ == "__main__":
             tail = ''
 
         plt.style.use('seaborn-paper')
+        mpl.rcParams['font.family'] = 'Yantramanav'
+        mpl.rcParams['mathtext.default'] = 'regular'
 
-        make_cancer_table(cds)
+        # report_expression(cds, ['MYOSLID', 'LINC01614', 'EWSAT1',
+        #                         'MIR4435-2HG', 'CYTOR'])
 
-        make_pie_chart(cds, 'pie_by_number')
+        # make_cancer_table(cds)
 
-        make_barchart(datasets, 'num_signif_bar_chart' + tail)
+        # make_pie_chart(cds, 'pie_by_number' + tail)
 
-        make_type_volcanos(cds, 'volcano_by_cancer' + tail)
+        # make_barchart(cds.dss, 'num_signif_bar_chart' + tail)
 
-        make_violin(cds, 'violin_by_cancer' + tail)
+        # make_type_volcanos(cds, 'volcano_by_cancer' + tail)
 
-        make_corr_cluster(cds, cds.all_expressed, 'expressed_clustergram' +
-                          tail)
-        make_corr_cluster(cds, cds.num_signif >= 1, 'de_clustergram' + tail)
-        make_corr_cluster(cds, cds.num_signif >= 3, '3_de_clustergram' + tail)
+        # make_violin(cds, 'violin_by_cancer' + tail)
+        #
+        # make_corr_cluster(cds, cds.all_expressed, 'expressed_clustergram' +
+        #                   tail)
+        # make_corr_cluster(cds, cds.num_signif >= 1, 'de_clustergram' + tail)
+        # make_corr_cluster(cds, cds.num_signif >= 3, '3_de_clustergram' + tail)
+        #
+        # make_corr_cluster_2(cds, cds.all_expressed,
+        #                     'median_expressed_clustergram' + tail)
+        # make_corr_cluster_2(cds, cds.num_signif >= 1,
+        #                     'median_de_clustergram' + tail)
+        # make_corr_cluster_2(cds, cds.num_signif >= 3,
+        #                     'median_3_de_clustergram' + tail)
+        # make_table_heatmaps(cds, 'table_heatmaps' + tail)
 
-        make_corr_cluster_2(cds, cds.all_expressed,
-                            'median_expressed_clustergram' + tail)
-        make_corr_cluster_2(cds, cds.num_signif >= 1,
-                            'median_de_clustergram' + tail)
-        make_corr_cluster_2(cds, cds.num_signif >= 3,
-                            'median_3_de_clustergram' + tail)
-
+        make_venn_diagrams(cds, 'venn')

@@ -5,11 +5,14 @@
 from utils import *
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib_venn import venn3, venn2
+from matplotlib_venn import venn3, venn2, venn2_circles
 from pyvenn import venn
 from mpl_toolkits import axes_grid1
 import seaborn as sns
 import pandas as pd
+from scipy.cluster import hierarchy
+from scipy.spatial import distance
+from sklearn.metrics import silhouette_score
 import textwrap
 
 
@@ -18,6 +21,8 @@ pal = sns.color_palette('tab20b', 20, saturation_val)
 pal = pal[0:4] + pal[5:8] + [pal[10], pal[13], pal[18]]
 default_palette = pal
 ptsz = 2 ** 2
+lw = 1
+savefig_args = dict(transparent=True, dpi=300)
 
 
 def plot_hv_line(direction, position, lims=[-100, 100], axis=None, **kwargs):
@@ -33,37 +38,68 @@ def plot_hv_line(direction, position, lims=[-100, 100], axis=None, **kwargs):
         raise ValueError('direction must be \'h\' or \'v\'')
 
 
+clust_args = dict(vmin=-1, vmax=1, figsize=(4, 4), center=0, cmap='vlag',
+                  cbar_kws=dict(ticks=[-1, 0, 1], format='%d', drawedges=False),
+                  dgline_kws=dict(linewidth=1))
+
+
 def make_corr_cluster(cds, filt=None, title='untitled'):
     df = cds.profile_panda(filt)
     cancers = cds.dss_names
 
     # categorical palette
     lut = dict(zip(cancers, default_palette))
-
     column_names = df.columns.get_level_values('cancer_type')
     cancer_colors = pd.Series(column_names, index=df.columns).map(lut)
 
-    c = sns.clustermap(df.corr(), center=0, cmap='vlag',
+    c = sns.clustermap(df.corr(),
                        row_colors=cancer_colors, col_colors=cancer_colors,
-                       figsize=(8, 8), xticklabels=False, row_cluster=False,
-                       col_cluster=False, yticklabels=False)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+                       xticklabels=False, row_cluster=False,
+                       col_cluster=False, yticklabels=False, **clust_args)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
 
 
 def make_corr_cluster_2(cds, filt=None, title='untitled'):
     df = cds.median_profile_panda(filt)
     cancers = cds.dss_names
 
+    corr_df = df.corr()
+    dists = distance.pdist(np.array(corr_df))
+    linkage = hierarchy.linkage(dists, method='average')
+
     # categorical palette
     lut = dict(zip(cancers, default_palette))
 
     column_names = df.columns
     cancer_colors = pd.Series(column_names, index=df.columns).map(lut)
-
-    c = sns.clustermap(df.corr(), center=0, cmap='vlag',
+    lw = None
+    c = sns.clustermap(corr_df, row_linkage=linkage, col_linkage=linkage,
                        row_colors=cancer_colors, col_colors=cancer_colors,
-                       figsize=(5, 5), linewidth=0.75)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+                       linewidth=lw, **clust_args)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
+
+    plt.figure(figsize=(3, 3.2))
+    dist_mat = distance.squareform(dists + dists.T)
+    x = np.arange(1, len(df.columns)) + 1
+    y = np.zeros(x.shape)
+    for i, maxc in enumerate(x):
+        nodes = hierarchy.fcluster(linkage, t=maxc, criterion='maxclust')
+        y[i] = silhouette_score(dist_mat + dist_mat.T, nodes,
+                                metric='euclidean')
+    ax = plt.subplot(111)
+    ax.plot(x, y, linewidth=1.5, marker='o', color=default_palette[0],
+            ms=7)
+    ax.plot(x[4], y[4], linewidth=1.5, marker='o',
+            markerfacecolor=default_palette[7],
+            markeredgecolor=default_palette[0],
+            markeredgewidth=1,
+            ms=7)
+    sns.despine(ax=ax)
+    ax.set_ylabel('Silhouette Score')
+    ax.set_xlabel('Number of Clusters')
+    ax.tick_params(direction='in', length=2.5, pad=2.5)
+    plt.tight_layout(pad=2.5)
+    plt.savefig(os.path.join('figures', title + '_sillohoute'), **savefig_args)
 
 
 def make_barchart(datasets, title=None):
@@ -86,22 +122,23 @@ def make_barchart(datasets, title=None):
     df = pd.DataFrame(panda_dict)
     # df = df.sort_values('significant', ascending=False)
 
-    plt.figure(1, (9, 4))
+    plt.figure(1, (5, 2.8))
     ax = plt.subplot(111)
-    sns.barplot(y='expressed', x='cancer',
-                data=df, label='Total Expressed', color=(0.8, 0.8, 0.8))
-    sns.barplot(y='significant', x='cancer',
-                data=df, label='Differentially Expressed',
-                palette=default_palette)
-    ax.legend(ncol=2, loc='upper center', bbox_to_anchor=(0.5, -0.1))
+    bar_args = dict(x='cancer', linewidth=lw, edgecolor='k', data=df)
+    sns.barplot(y='expressed', facecolor=(1, 1, 1, 0),
+                label='Total Expressed', **bar_args)
+    sns.barplot(y='significant', label='Differentially Expressed',
+                palette=default_palette, **bar_args)
+    ax.legend(ncol=2, loc='upper center', framealpha=0,
+              bbox_to_anchor=(0.5, -0.15))
     plt.tight_layout()
     ax.set(ylabel='Number of lncRNAs', xlabel='')
-    sns.despine(ax=ax, right=True, top=True, left=True)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+    sns.despine(ax=ax, right=True, top=True)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
 
 
 def make_type_volcanos(cds, title=None):
-    fig = plt.figure(figsize=(8, 5))
+    fig = plt.figure(figsize=(6.2, 3.1))
     grid = axes_grid1.Grid(fig, rect=111, nrows_ncols=(2, 5), axes_pad=0.1,
                            label_mode='L', share_all=True)
     df = cds.long_panda
@@ -128,20 +165,27 @@ def make_type_volcanos(cds, title=None):
         plot_hv_line('v', -1, [0, maxy], **kwa)
         plot_hv_line('v', 1, [0, maxy], **kwa)
         if i == 5:
-            ax.set_xlabel('log2 fold change')
-            ax.set_ylabel('-log10 q-value')
+            ax.set_xlabel('')
+            ax.set_ylabel('')
         else:
             ax.set_xlabel('')
             ax.set_ylabel('')
         ax.set_xlim(-maxx, maxx)
         ax.set_ylim(0, maxy + 2.5)
-        ax.text(-maxx + 2, maxy + 2, cds.dss_names[i], va='top', ha='left',
-                fontweight='bold', fontsize=7.5,
-                bbox={'boxstyle': 'round', 'facecolor': 'w', 'pad': 0.3})
-        sns.despine(ax=ax, right=True, top=True)
+        ax.text(-maxx + 1.5, maxy + 2.2, cds.dss_names[i], va='top', ha='left',
+                fontweight='900', fontsize=7.5)
+        ax.tick_params(direction='in', length=2.5, pad=2.5)
+        sns.despine(ax=ax)
 
+    ax = fig.add_subplot(111)
+    ax.set_xlabel('log$_2$ fold change', labelpad=12)
+    ax.set_ylabel('log$_{10}$ q-value', labelpad=12)
+    sns.despine(ax=ax, left=True, bottom=True)
+    ax.tick_params(labelcolor=(), top=False, bottom=False, left=False,
+                   right=False, labeltop=False, labelbottom=False,
+                   labelleft=False, labelright=False)
     plt.tight_layout(pad=1.15)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
 
 
 def make_num_volcanos(cds, title=None):
@@ -184,7 +228,8 @@ def make_num_volcanos(cds, title=None):
 
 
 def make_violin(cds, title=None):
-    fig = plt.figure(figsize=(6, 4))
+    figsz = (4.5, 2.8)
+    fig = plt.figure(figsize=figsz)
 
     df = cds.long_panda
     n_genes = np.count_nonzero(cds.any_expressed)
@@ -205,16 +250,17 @@ def make_violin(cds, title=None):
     sns.violinplot(data=v_df, ax=ax, orient='v', showfliers=False, bw=0.15,
                    linewidth=1, inner=None, cut=0, width=1.25,
                    palette=default_palette)
+    ax.tick_params(direction='in', length=2.5, pad=2.5)
     ax.set_xlim(-0.5, 9.8)
     sns.despine(ax=ax, right=True, top=True)
-    ax.set_ylabel('log2 fold change')
+    ax.set_ylabel('log$_{2}$ fold change')
     ax.set_xlabel('Cancer Type')
 
     plt.tight_layout(pad=1.15)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
 
     # PLot 2
-    fig = plt.figure(figsize=(8, 5))
+    fig = plt.figure(figsize=figsz)
 
     for i, n in enumerate(cds.dss_names):
         df_dict[n] = temp[
@@ -228,22 +274,24 @@ def make_violin(cds, title=None):
     v_df = v_df[cds.dss_names]
     ax = fig.subplots(1, 1)
     sns.violinplot(data=v_df, ax=ax, orient='v', showfliers=False, bw=0.15,
-                   linewidth=2, inner=None, cut=0, width=1,
+                   linewidth=1, inner=None, cut=0, width=1,
                    palette=default_palette)
-
+    ax.tick_params(direction='in', length=2.5, pad=2.5)
     sns.despine(ax=ax, right=True, top=True)
-    ax.set_ylabel('log2 fold change')
+    ax.set_ylabel('log$_{2}$ fold change')
     ax.set_xlabel('Cancer Type')
 
     plt.tight_layout(pad=1.15)
-    plt.savefig(os.path.join('figures', title + '_not_signif'), dpi=300)
+    plt.savefig(os.path.join('figures', title + '_not_signif'), **savefig_args)
 
 
 def make_cancer_table(cds):
     for ds in cds.dss:
         num_signif = np.count_nonzero(ds.results['t_test'][2])
         num_expr = np.count_nonzero(ds.results['is_expressed'])
-        print('%4s, %37s, %3d, %3d, %3d, %4d, %4d, %2d%%'
+        fmt1 = '%4s, %37s, %3d, %3d, %3d, %4d, %4d, %2d%%'
+        fmt2 = '%s,%s,%d,%d,%d,%d,%d,%d%%'
+        print(fmt2
               % (ds.cancer_type,
                  TanricDataset.sampleid2name(ds.cancer_type),
                  ds.n_normal_samples,
@@ -252,6 +300,7 @@ def make_cancer_table(cds):
                  num_signif,
                  num_expr,
                  round(num_signif / num_expr * 100)))
+
 
 def make_pie_chart(cds, title=None):
 
@@ -267,26 +316,31 @@ def make_pie_chart(cds, title=None):
                % (i, round(values[i] / sum(values[2:]) * 100))
                for i in range(2, 8)]
 
-    plt.figure(figsize=(8, 2.8))
+    plt.figure(figsize=(6, 2.2))
     ax = plt.subplot(121)
-    wed, _ = plt.pie([valuesnil, ] + values[:2] + [sum(values[2:]), ],
+    wed, txts = plt.pie([valuesnil, ] + values[:2] + [sum(values[2:]), ],
                      labels=groups1,
                      colors=sns.color_palette('tab10', 10, 1)[:4],
                      explode=[0, 0, 0, 0.1])
+    t = txts[1]
+    x, y = t.get_position()
+    t.set_position((x, y - 0.05))
     for w in wed:
         w.set_linewidth(1)
         w.set_edgecolor('k')
     ax.add_artist(plt.Circle((0, 0), 0.6, facecolor='w', edgecolor='k',
                              linewidth=1))
-    ax.text(0, 0, '{:,}'.format(cds.n_genes), fontsize=12, fontweight='bold',
+    ax.text(0, 0, '{:,}'.format(cds.n_genes), fontsize=12, fontweight='700',
             va='center', ha='center')
     ax.axis('equal')
 
     ax = plt.subplot(122)
-    wed, _ = plt.pie(values[2:], labels=groups2,
-                     colors=sns.light_palette(sns.color_palette('tab10',
-                                                                10, 1)[3],
-                                              len(groups2)))
+    wed, txts = plt.pie(values[2:], labels=groups2,
+                        colors=sns.light_palette(
+                            sns.color_palette('tab10', 10, 1)[3], len(groups2)))
+    t = txts[5]
+    x, y = t.get_position()
+    t.set_position((x, y + 0.1))
     for w in wed:
         w.set_linewidth(1)
         w.set_edgecolor('k')
@@ -297,5 +351,109 @@ def make_pie_chart(cds, title=None):
             fontweight='bold',
             va='center', ha='center')
     plt.tight_layout(pad=1.6)
-    plt.savefig(os.path.join('figures', title), dpi=300)
+    plt.savefig(os.path.join('figures', title), **savefig_args)
 
+
+def report_expression(cds, names):
+    df = cds.long_panda
+    for n in names:
+        row_sel = df['gene_name'] == n
+        info = df[['gene_name', 'expression', 'cancer_type', 'fc',
+                   'is_expressed']][row_sel]
+        print('\n\n' + n)
+        print(info)
+
+
+
+test_ls = ['PART1','MIR22HG','TCL6','SMIM10L2B','SNHG12','DUXAP8','EWSAT1',
+           'MEG3','MIR99AHG','CYTOR','TINCR','LINP1','DANCR','BMS1P17',
+           'MIR34AHG','DNM3OS','MIR600HG','PVT1','MIR200CHG','PWAR6','PTCSC3',
+           'LUCAT1','DGCR9']
+
+def make_table_heatmaps(cds, title=None):
+    df = cds.long_panda
+    grps = [['KIRC', 'KIRP'], ['BRCA', 'HNSC', 'LUAD', 'STAD']]
+    for gp in grps:
+        overlaps = np.ones(cds.n_genes, dtype=bool)
+        for cnc in gp:
+            cancer_sel = df['cancer_type'] == cnc
+            overlaps = np.logical_and(overlaps, np.array(df['is_signif'][
+                cancer_sel]))
+
+        if gp is grps[0]:
+            overlaps = np.zeros(cds.n_genes, dtype=bool)
+            for i, gn in enumerate(cds.gene_names):
+                if gn in test_ls:
+                    overlaps[i] = True
+        pd_dict = {}
+        for cnc in gp:
+            cancer_sel = df['cancer_type'] == cnc
+            fc = np.array(df['fc'][cancer_sel])
+            pd_dict[cnc] = fc[overlaps]
+
+        idxs = [cds.gene_names[i] for i in range(cds.n_genes) if overlaps[i]]
+        df2 = pd.DataFrame(pd_dict, index=idxs)
+
+        if gp is grps[0]:
+            fig = plt.figure(figsize=(3, 4.8))
+        else:
+            fig = plt.figure(figsize=(3, 4))
+
+        sns.heatmap(df2, center=0, cmap='vlag', linewidths=1, annot=True,
+                    fmt='.1f', cbar=False)
+        plt.tight_layout(pad=2.5)
+        plt.savefig(os.path.join('figures', title + '_'.join(gp)),
+                    **savefig_args)
+
+
+    max_genes_sel = df['num_signif'] == max(df['num_signif'])
+    max_genes = np.unique(np.array(df['gene_name'][max_genes_sel]))
+    vals = []
+    for gn in max_genes:
+        gn_selec = df['gene_name'] == gn
+        selec = np.logical_and(max_genes_sel, gn_selec)
+        vals.append(np.mean(df['fc'][selec]))
+
+    df3 = pd.DataFrame(vals, index=max_genes, columns=['Mean Fold Change', ])
+    fig = plt.figure(figsize=(2.8, 3))
+    sns.heatmap(df3, center=0, cmap='vlag', linewidths=1, annot=True,
+                fmt='.1f', cbar=False)
+    plt.tight_layout(pad=2.5)
+    plt.savefig(os.path.join('figures', title + '_max_expr'),
+                **savefig_args)
+
+
+def make_venn_diagrams(cds, title=None):
+    grps = [['KIRC', 'KIRP'], ['BRCA', 'HNSC', 'LUAD', 'STAD']]
+    df = cds.long_panda
+    gp = grps[0]
+    sets = []
+    for cnc in gp:
+        cancer_sel = df['cancer_type'] == cnc
+        temp = np.array(df['is_signif'][cancer_sel])
+        sets.append(set(np.where(temp)[0]))
+
+    plt.figure(figsize=(3, 2))
+    v = venn2(sets, tuple(gp))
+    v.get_patch_by_id('10').set_color(default_palette[7])
+    v.get_patch_by_id('01').set_color(default_palette[6])
+    v.get_patch_by_id('11').set_color(default_palette[2])
+    c = venn2_circles(sets, linestyle='solid')
+    [cl.set_lw(1) for cl in c]
+    plt.savefig(os.path.join('figures', title + '_gp_1'), **savefig_args)
+
+    gp = grps[1]
+    sets = []
+    for cnc in gp:
+        cancer_sel = df['cancer_type'] == cnc
+        temp = np.array(df['is_signif'][cancer_sel])
+        sets.append(set(np.where(temp)[0]))
+
+    labels = venn.get_labels(sets)
+    fig, ax = venn.venn4(labels, figsize=(6, 6), names=gp, colors=
+                         [(default_palette[i][0],
+                           default_palette[i][1],
+                           default_palette[i][2],
+                           0.3)
+                          for i in [3, 5, 7, 8]])
+    plt.savefig(os.path.join('figures', title + '_gp_2'), **savefig_args)
